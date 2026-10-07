@@ -9,7 +9,7 @@
 '  errors; closing it - or double-clicking Close Game.vbs -
 '  stops the game.
 '
-'  Requirements: Node.js 22+ installed, game/.env filled in
+'  Requirements: Node.js 22.18+ installed, game/.env filled in
 '  (see README.md). No build step needed.
 ' ============================================================
 Option Explicit
@@ -25,9 +25,28 @@ sh.CurrentDirectory = gameDir
 port = 5188
 url  = "http://127.0.0.1:" & port & "/"
 
-' ---- locate node.exe: install dir first, then PATH ----
+' ---- locate node.exe: install dir first, then scan PATH ----
 node = sh.ExpandEnvironmentStrings("%ProgramFiles%") & "\nodejs\node.exe"
-If Not fso.FileExists(node) Then node = "node.exe"
+If Not fso.FileExists(node) Then
+  node = ""
+  Dim dirs, d
+  dirs = Split(sh.ExpandEnvironmentStrings("%PATH%"), ";")
+  For Each d In dirs
+    If d <> "" Then
+      If fso.FileExists(d & "\node.exe") Then
+        node = d & "\node.exe"
+        Exit For
+      End If
+    End If
+  Next
+End If
+If node = "" Then
+  ' No Node.js anywhere -> say so plainly instead of an obscure script error
+  sh.Popup "Node.js not found on this computer." & vbCrLf & vbCrLf & _
+           "Please install Node.js 22.18 or newer from https://nodejs.org/ ," & vbCrLf & _
+           "then double-click this file again.", 0, "Missing Node.js", 48
+  WScript.Quit
+End If
 
 ' ---- step 1: kill any previous game server ----
 ' Match by command line ("server.ts"), never by name alone:
