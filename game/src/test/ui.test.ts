@@ -1402,6 +1402,17 @@ const 玩家界面: Suite = {
         html.includes('adoptPayload(doneEnv)'),
         '★★ 场景对话没有接流式（sayStream 缺玩家立显 / SSE 读流 / done 收官 之一）',
       );
+
+      // ㉑ 2026-10-07 用户 bug：「每次进入存档都重刷序幕假事件的结算结果」——
+      //    读档那一次必须**只对齐游标不重播**（skip 标记挂在 loadGame 调用点上，
+      //    且 resetLocalViewState 要清它，防读档失败后误吞下一局的序幕结果）。
+      t.ok(
+        html.includes('let feedCursorSkipOnce = false;') &&
+        /feedCursorSkipOnce = false; feedShown = arr\(S\.feed\)\.length;/.test(html) &&
+        /act === 'loadGame'[\s\S]{0,600}feedCursorSkipOnce = true;/.test(html) &&
+        /resetLocalViewState\(\)\{[\s\S]{0,1400}feedCursorSkipOnce = false;/.test(html),
+        '★★ 读档历史重播未修（skip 标记 / adopt 分支 / loadGame 置真 / 回标题清零 之一缺失）',
+      );
     });
 
     // ⚠️⚠️ 2026-10-06（用户裁定问题 8：「事件在地图上的显示很奇怪，**部分事件的图层会重叠**」）

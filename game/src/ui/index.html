@@ -2639,6 +2639,14 @@ let handled = null;
  */
 let feedShown = 0;
 let feedCursorReady = false;
+// ⚠️ 2026-10-07 用户报告的 bug：「每次进入一个存档，都会重新刷新出序幕假事件的结算结果」。
+//    病根：页面首屏的 `/api/view`（feed 还是空的）就把 `feedCursorReady` 置真、游标推到 0；
+//    随后「进入存档」的 `/api/save/load` 带着**整段历史 feed** 回来，走的是增量分支
+//    `collectResults()` ⇒ 游标从 0 起步，几十条旧结算全被当成"这一次新产生的"重播。
+//    （开新局没事：`save/new` 的 feed 是这一次刚生成的，本来就**该**弹。）
+//    ⇒ 修法：读档这一次响应**只对齐游标、不重播**（历史里没有任何"新"结果可丢 ——
+//      读档动作本身不产生结算）。下一次动作起恢复正常增量语义。
+let feedCursorSkipOnce = false;
 let banner = [];                   // {kind:'ok'|'err', text}
 // ⚠️⚠️ 2026-10-06 清单第 4B 条：**原先那个 `slots = { 成果, 手段, 共鸣 }` 已删** ——
 //   它是 P5-B 时代"三格就地选择"的页面态，而现在放格子的唯一入口是**「你的欲望」那一屏**
@@ -3250,7 +3258,8 @@ function adoptPayload(payload){
   // ── 结算弹窗的收口（见 `collectResults`）──────────────────────
   //    读档 / 开新局那一下只把游标推到当前长度（**历史不重播**）。
   else if (S) {
-    if (!feedCursorReady) { feedCursorReady = true; feedShown = arr(S.feed).length; }
+    if (feedCursorSkipOnce) { feedCursorSkipOnce = false; feedShown = arr(S.feed).length; }
+    else if (!feedCursorReady) { feedCursorReady = true; feedShown = arr(S.feed).length; }
     else collectResults();
   }
   render();
@@ -5702,6 +5711,10 @@ function resetLocalViewState(){
   // 结算游标也要归零：下一局的第一份信封会把游标推到它的长度（历史不重播）。
   feedCursorReady = false;
   feedShown = 0;
+  // ⚠️ 2026-10-07：读档的「跳过一次重播」标记也在这里清 ——
+  //    读档失败（服务器回错、屏留在 title）时它已经置真，不清的话
+  //    下一次**开新局**的序幕新结果会被误当"该跳过的历史"吞掉。
+  feedCursorSkipOnce = false;
   slots = { 成果: '', 手段: '', 共鸣: '' };
   // 历史展开了多少也算"局内临时状态"—— 不清的话，读另一局回来会带着上一局展开的清单。
   // ⚠️ 这一份**必须与顶上那处声明逐字一致**（同一个状态两处初始化 —— 漏一个键，
@@ -8648,6 +8661,10 @@ document.addEventListener('click', async (ev) => {
     return;
   }
   if (act === 'loadGame') {
+    // ⚠️ 2026-10-07：读档**只对齐游标不重播**（feedCursorSkipOnce，见其声明处的病灶分析）
+    //    —— 不设这个的话，页面首屏已把游标推到"空 feed 的 0"，读档带回的整段历史
+    //    会被当成新结算逐条弹回（序幕假事件的结果每次进档都重新刷一遍）。
+    feedCursorSkipOnce = true;
     await api('/api/save/load', { slot: Number(el.dataset.slot) }, '正在读档…');
     return;
   }
