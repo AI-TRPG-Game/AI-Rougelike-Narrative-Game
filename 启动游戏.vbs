@@ -1,17 +1,23 @@
 ' ============================================================
-'  One-click launcher: starts the game server (--live by
-'  default, i.e. the REAL game with the real LLM), then opens
-'  the browser. The server window stays open (minimized) so
-'  you can read errors; closing it stops the game.
+'  One-click launcher: kills any PREVIOUS game server first
+'  (stale instances cause weird bugs - a fresh start every
+'  time), then starts the game (--live by default, i.e. the
+'  REAL game with the real LLM) in a new minimized console
+'  window, and opens the browser.
+'
+'  The server window stays open (minimized) so you can read
+'  errors; closing it - or double-clicking Close Game.vbs -
+'  stops the game.
 '
 '  Requirements: Node.js 22+ installed, game/.env filled in
 '  (see README.md). No build step needed.
 ' ============================================================
 Option Explicit
 
-Dim sh, fso, gameDir, node, port, url
+Dim sh, fso, wmi, procs, p, cl, gameDir, node, port, url
 Set sh  = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
+Set wmi = GetObject("winmgmts:\\.\root\cimv2")
 
 gameDir = fso.GetParentFolderName(WScript.ScriptFullName)
 sh.CurrentDirectory = gameDir
@@ -23,11 +29,25 @@ url  = "http://127.0.0.1:" & port & "/"
 node = sh.ExpandEnvironmentStrings("%ProgramFiles%") & "\nodejs\node.exe"
 If Not fso.FileExists(node) Then node = "node.exe"
 
-' ---- start server in a MINIMIZED console window (style 6) ----
-' If a server is already running on this port the new one
-' simply fails and prints why into its window - harmless.
+' ---- step 1: kill any previous game server ----
+' Match by command line ("server.ts"), never by name alone:
+' other node programs must not be touched.
+Set procs = wmi.ExecQuery( _
+  "SELECT ProcessId, CommandLine FROM Win32_Process WHERE Name = 'node.exe'")
+For Each p In procs
+  cl = ""
+  If Not IsNull(p.CommandLine) Then cl = LCase(p.CommandLine)
+  If InStr(cl, "server.ts") > 0 Then
+    sh.Run "taskkill /PID " & p.ProcessId & " /F /T", 0, True
+  End If
+Next
+
+' ---- step 2: let Windows release the port ----
+WScript.Sleep 800
+
+' ---- step 3: start a FRESH server in a new minimized console ----
 sh.Run """" & node & """ game\src\ui\server.ts --live --port " & port, 6, False
 
-' ---- give the server a moment, then open the browser ----
+' ---- step 4: give the server a moment, then open the browser ----
 WScript.Sleep 3000
 sh.Run url, 1, False
