@@ -1,0 +1,17 @@
+# ── 密钥（最高优先级，永远不上传）──
+game/.env
+
+# ── 玩家存档与运行痕迹 ──
+game/saves/
+game/runs/
+
+# ── 依赖与本地环境 ──
+node_modules/
+__pycache__/
+
+# ── AI 工作区（本地协作数据，不属于游戏本体）──
+.workbuddy/
+
+# ── 系统杂物 ──
+Thumbs.db
+Desktop.ini
