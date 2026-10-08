@@ -15,6 +15,7 @@ import {
   crossedCheckpoints,
 } from '../rules/checkpoint.ts';
 import { clamp } from '../rules/num.ts';
+import { CARRY_CAP } from '../rules/gates.ts';
 import { emptyBatch, foldChange, type Batch } from './batch.ts';
 import { allocatorFor, nextSeedCode } from './ids.ts';
 import { PLAYER_ID, type Item, type Ledger, type Person, type Place } from './types.ts';
@@ -111,18 +112,39 @@ export function applyDelta(ledger: Ledger, raw: unknown, ctx: ApplyCtx = {}, bat
       }
       const formal = alloc.next('it');
       batch.tempIds[key] = formal;
-      // holder 可能是本批的人物临时编号 —— 一并改写
-      const holderRaw = p.holder || '';
-      const holder = holderRaw
-        ? (() => {
-            const t = parseTempId(holderRaw);
-            if (!t) return holderRaw;
-            const f = batch.tempIds[normalizeTempId(holderRaw)];
-            return f ?? holderRaw;
-          })()
-        : '';
-      batch.entities.items.push({ ...p, id: formal, holder } as unknown as Item);
+      // ⚠️ holder 在这里只做「形状归一」：契约层空串 = 无人携带 ⇒ 账本层的 null。
+      //    （此前落成 `''` ⇒ 下游 `holder === null` 的严格比较全不认它：手牌区看不见、
+      //      成果池不收 —— 2026-10-08 实测复现。）
+      //    临时编号 → 正式 id 的改写见第一遍结束后的统一段（那里才收得齐 tempIds）。
+      const holderRaw = typeof p.holder === 'string' ? p.holder.trim() : '';
+      batch.entities.items.push({ ...p, id: formal, holder: holderRaw || null } as unknown as Item);
     }
+  }
+
+  // ── 引用改写：第一遍收齐 tempIds 后统一做 ─────────────────────────
+  //    ⚠️ 必须在第一遍**之后**：items op 与 people op 谁先谁后不该影响结果
+  //      （此前在逐 op 循环内解析，items 排在 people 前面时 `@p1` 查不到 ⇒ holder 悬空
+  //        —— 2026-10-08 实测复现⑤）。
+  for (const it of batch.entities.items) {
+    const h = it.holder;
+    if (typeof h !== 'string' || !h) continue;
+    const t = parseTempId(h);
+    if (!t) continue;
+    // 解析不到的保留原值：commitBatch 那层会把「持有者不存在」降级回手牌区并记一笔
+    it.holder = batch.tempIds[normalizeTempId(h)] ?? h;
+  }
+  // 新人物的 items：物品临时编号 → 正式 id。
+  // ⚠️ schema 对 id 的承诺是「本批所有对该编号的引用一并改写为正式 id」——
+  //    人物 items 这一引用此前从来没被改写过（落账后 `["@it1"]` 悬空 ⇒ 装备全不生效）。
+  for (const pe of batch.entities.people) {
+    const ids = pe.items;
+    if (!Array.isArray(ids)) continue;
+    pe.items = ids.map((id) => {
+      if (typeof id !== 'string' || !id) return id;
+      const t = parseTempId(id);
+      if (!t || t.kind !== 'it') return id;
+      return batch.tempIds[normalizeTempId(id)] ?? id;
+    });
   }
 
   // ── 第二遍：gold / rep / change / lost ──
@@ -312,6 +334,58 @@ export function commitBatch(ledger: Ledger, batch: Batch): CommitReport {
     report.push(
       `新建实体 ${batch.entities.people.length} 人 / ${batch.entities.items.length} 物 / ${batch.entities.places.length} 地`,
     );
+  }
+
+  // ── 持有不变式（2026-10-08）：「物品在某人身上」= holder 指向他 ＋ 他的 items 含它 ──
+  //    ⚠️ LLM 只写一边是常态（只给物品写 holder、或只给人物写 items）⇒ 批末双向对齐。
+  //    **以物品的 holder 为准**：物品位置是主事实，人物 items 是派生索引 ——
+  //    「他宣称带着但东西不在他身上」按东西的实际位置算，绝不给一处悬空引用。
+  for (const it of batch.entities.items) {
+    const h = it.holder;
+    if (!h) continue;
+    const who = l.entities.people.find((x) => x.id === h);
+    if (!who) {
+      it.holder = null;
+      report.push(`⚠️ ${it.name}(${it.id}) 的持有者 ${h} 不存在 ⇒ 先放回手牌区`);
+      continue;
+    }
+    if (!who.items.includes(it.id)) {
+      if (who.items.length >= CARRY_CAP) {
+        it.holder = null;
+        report.push(`⚠️ ${who.name} 携带位已满（${CARRY_CAP}）⇒ ${it.name}(${it.id}) 先放回手牌区`);
+        continue;
+      }
+      who.items.push(it.id);
+    }
+  }
+  // 新人物的 items：对齐到物品实际位置（悬空引用 / 别人的物品一律清掉，不静默）。
+  //    ⚠️ 只清本批新建的人物 —— 既有人物的 items 由系统单写者（Session.give）维护，
+  //      轮不到 LLM 批次来对账（那会把闸门⑤不变式检查误报成"账本坏掉"）。
+  for (const pe of batch.entities.people) {
+    const keep: string[] = [];
+    for (const id of pe.items ?? []) {
+      const it = l.entities.items.find((x) => x.id === id);
+      if (!it) {
+        report.push(`⚠️ ${pe.name}(${pe.id}) 声称携带 ${id}，但它不存在 ⇒ 已移除`);
+        continue;
+      }
+      if (it.holder !== pe.id) {
+        report.push(`⚠️ ${pe.name}(${pe.id}) 声称携带 ${it.name}(${id})，但它不在他身上 ⇒ 已移除`);
+        continue;
+      }
+      keep.push(id);
+    }
+    if (keep.length > CARRY_CAP) {
+      // 兜 LLM 直接给新人物塞一长串 items：超出的物品若 holder 指向他，一并放手牌区，
+      // 否则闸门⑤的不变式检查（items 超 4）会把后续所有动作整批拦死。
+      for (const id of keep.slice(CARRY_CAP)) {
+        const it = l.entities.items.find((x) => x.id === id);
+        if (it && it.holder === pe.id) it.holder = null;
+      }
+      report.push(`⚠️ ${pe.name}(${pe.id}) 声称携带 ${keep.length} 件，超出 ${CARRY_CAP} 位 ⇒ 只留前 ${CARRY_CAP} 件`);
+      keep.length = CARRY_CAP;
+    }
+    pe.items = keep;
   }
 
   // lost：移出账本（人物离队/死亡 ⇒ 其随身物品回到"未携带"）

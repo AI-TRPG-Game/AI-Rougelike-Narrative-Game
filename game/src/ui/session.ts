@@ -52,7 +52,7 @@ import { DESIRE_KITS, kitOf, ATTR_ADV_MAX, type DesireKit } from '../rules/desir
 import type { DangerZone } from '../rules/dice.ts';
 import { isFinalDay } from '../rules/ending.ts';
 import { daypartOf } from '../rules/clock.ts';
-import { evalGates, GATE_LANE, gatesOf, type GateLane } from '../rules/gates.ts';
+import { CARRY_CAP, evalGates, GATE_LANE, gatesOf, type GateLane } from '../rules/gates.ts';
 import { makeRng, type Rng } from '../rules/rng.ts';
 import { SCENE_ROUND_CAP } from '../rules/scene.ts';
 import type { DrawnCard } from '../rules/tarot.ts';
@@ -71,6 +71,7 @@ import {
   driveOpening,
   prologuePending,
   prologueRng,
+  skipToOpening,
   startPrologue,
 } from '../turn/prologue.ts';
 import { PROLOGUE_MAX_SEQ, PROLOGUE_OPENING_ID, PROLOGUE_TOTAL } from '../rules/prologue.ts';
@@ -345,14 +346,18 @@ export interface UiView {
    */
   ambience: string | null;
   /**
-   * **序幕（`day 0` · 界面显示「Day 0」）当前该读的那一条** —— 不在序幕 / 已走完 ⇒ `null`。
+   * **序幕（`day 0` · 界面显示「Day 0」）还没读完** —— 不在序幕 / 已走完 ⇒ `null`。
    *
-   * ⚠️ 为什么必须往视图上递：序幕**一次只铺一条**（`turn/prologue.ts` 的结构保证）⇒
-   *    界面拿到的那一条 `popups` 就是"当前该读的"，但它**不知道自己排在第几**。
-   *    没有这个字段，顶栏就只能显示"第 0 / 28 天"，玩家不知道还要读几条、剩几天。
+   * ⚠️ 为什么必须往视图上递：2026-10-08 起序幕**除末条外一次全铺、自由点选**
+   *    （`turn/prologue.ts`）⇒ 界面要靠它区分三种局面：① 序幕在读（地图顶上该说
+   *    「以下是你要处理的事件…」）；② 末条出现没有（「直接正式开始游戏」按钮该不该在）；
+   *    ③ 序幕读完、还停 day 0（那句话要等新的一天真的开始才换成「这些是摆在…」）。
+   * ⚠️ `seq` = live 里**第一条待处理**的序号（自由点选后"当前在读"不再唯一，
+   *    它只用于 `needsChoice` 的"站在末条上"判定）；`remaining` = 还剩几条没读。
    * ⚠️ `day` = **序幕的第几天**（`1 | 2`），**不是** `clock.day`（序幕期恒 `0`）。
+   * ⚠️ `openingLaid` = 末条「原初欲望的觉醒」铺出来没有（按钮随之消失 —— 用户裁定）。
    */
-  prologue: { seq: number; total: number; day: number; remaining: number } | null;
+  prologue: { seq: number; total: number; day: number; remaining: number; openingLaid: boolean } | null;
   /**
    * **5 条欲望原型 ＋ 玩家当前的选择**（2026-10-05 用户裁定：开局自己挑）。
    *
@@ -847,7 +852,8 @@ export class Session {
     const s = new Session(seed, rng, brain, l, pRng);
     s.note([
       `序幕开始 · ${PROLOGUE_TOTAL} 条档 A · 显示「Day 0」（前 2 天不计入 28 天）`,
-      '序幕不走 T0：不揭晓、不生成、无欲念漂移；0 行动点、0 调用。逐条读，点掉一条才出现下一条。',
+      '序幕不走 T0：不揭晓、不生成、无欲念漂移；0 行动点、0 调用。除末条外一次全铺、自由点选；' +
+        '「原初欲望的觉醒」在其余事件处理完（或点「直接正式开始游戏」）后出现。',
       ...sp.log,
     ]);
     return s;
@@ -892,7 +898,37 @@ export class Session {
     }
     const rng = makeRng(snap.seed, snap.rngState);
     const pRng = prologueRng(snap.seed, snap.pRngState);
-    const s = new Session(snap.seed, rng, brain, structuredClone(snap.ledger), pRng);
+    // ── 读档自愈（2026-10-08）：携带不变式「在某人身上 = holder 指向他 ＋ 他的 items 含它」──
+    //    批次落地修复（apply.ts·commitBatch 的双向对齐）之前落账的旧档带着这些脏形态：
+    //    · 物品 holder 落成**空串**（而非 null）⇒ 手牌区 / 成果池的严格比较全不认它（隐形）；
+    //    · 只写了一边（holder 或 items）⇒ 另一边悬空 —— 最坑的是「items 有它、holder 是空」：
+    //      卡面画着词条、详情页槽里摆着它，**却拖不回手牌区**（`canDropOn` 把无 holder 的当手牌物拒收）。
+    //    ⚠️ 以物品的 holder 为主事实（与 commitBatch 同一条纪律）：能对齐就对齐，
+    //      对不齐（人不存在 / 携带位满 / 引用悬空）一律放回手牌区或清掉引用 —— 不静默留脏。
+    const ledger = structuredClone(snap.ledger);
+    for (const it of ledger.entities.items) {
+      if (it.holder === '') it.holder = null;
+      if (it.holder === null) continue;
+      const who = ledger.entities.people.find((p) => p.id === it.holder);
+      if (!who) {
+        it.holder = null;
+        continue;
+      }
+      if (!who.items.includes(it.id)) {
+        if (who.items.length >= CARRY_CAP) {
+          it.holder = null;
+          continue;
+        }
+        who.items.push(it.id);
+      }
+    }
+    for (const p of ledger.entities.people) {
+      p.items = p.items.filter((id) => {
+        const it = ledger.entities.items.find((x) => x.id === id);
+        return !!it && it.holder === p.id;
+      });
+    }
+    const s = new Session(snap.seed, rng, brain, ledger, pRng);
     s.flip = snap.flip;
     // ⚠️ 优先用快照里那一份（"选好了还没开局就退出"的场合）⇒ 旧存档没这个键时
     //    **保留构造函数从账本回填的那份**（开局过了就从账本取，没开局就是默认值）。
@@ -1170,6 +1206,22 @@ export class Session {
     };
   }
 
+  /**
+   * **「直接正式开始游戏」**（2026-10-08 用户裁定 · 序幕地图顶上那颗按钮）：
+   * 跳过还没读的序幕事件，翻开末条「原初欲望的觉醒」。
+   *
+   * ⚠️ **同步、零 LLM**（它只裁 `events.live`：掐掉 day 0 的待处理档 A ＋ 铺末条）。
+   * ⚠️ 判据全在 `turn/prologue.ts·skipToOpening`（唯一口径）：不是序幕 ⇒ 原样返回。
+   * ⚠️ 走 `adopt` ⇒ `steps +1`、自动存档照常 —— 它是一次玩家的**决定**，不是纯渲染。
+   */
+  skipPrologueRest(): ActionResult {
+    const g = this.guard();
+    if (g) return g;
+    const r = skipToOpening(this.ledger);
+    if (r.ledger !== this.ledger) this.adopt(this.probe(), r.ledger, r.log);
+    return { ok: true, error: '', notice: '', log: r.log, ended: !!this.ledger.ending };
+  }
+
   /** 排布一条（派遣 / 玩家亲自 · 一次了结）—— 不推进时间，只扣下属容量 / 锁金币 */
   async arrange(input: HandleInput): Promise<ActionResult> {
     const g = this.guard();
@@ -1406,7 +1458,8 @@ export class Session {
    *    借东西不掷骰、不调 LLM、不花时间（`卡槽与LLM分工.md` §1.1 的"结构性约束归系统"）。
    * ⚠️ **单写者**：`structuredClone` 隔一层再改，不就地改 `this.ledger`
    *    （那是全项目的硬约定，`snapshot()` 那条测试靠它）。
-   * @param toWhom 交给谁（`npc000` = 收回自己身上）
+   * @param toWhom 交给谁（`npc000` = 装备到玩家自己身上；**`''` = 无人携带**（2026-10-08
+   *   用户裁定：拖回手牌区 ＝ 摘下，不挂到任何人名下 —— 手牌区不占携带位））
    * @param itemIds 哪几件
    */
   async give(toWhom: string, itemIds: readonly string[]): Promise<ActionResult> {
@@ -1416,8 +1469,10 @@ export class Session {
     if (ids.length === 0) {
       return { ok: false, error: '没说要给哪一件', notice: '', log: [], ended: !!this.ledger.ending };
     }
-    const who = findPerson(this.ledger, toWhom);
-    if (!who) {
+    // ⚠️ 2026-10-08（无人携带）：`to === ''` ＝ 摘下回手牌区 —— 不找目标人、
+    //    不过闸门 ⑤（手牌区没有携带位上限；`loadTo` 为空时 ⑤ 本来就整段跳过）。
+    const who = toWhom === '' ? null : findPerson(this.ledger, toWhom);
+    if (toWhom !== '' && !who) {
       return { ok: false, error: `账本上没有 ${toWhom} 这个人`, notice: '', log: [], ended: !!this.ledger.ending };
     }
     // ⚠️ 借出**必须先经过闸门 ⑤**（`CARRY_CAP` ＋ "已被他人持有"两条）——
@@ -1429,11 +1484,13 @@ export class Session {
     //    所以这里 `action` 填哪一个都不影响它 —— 用 `'handle'` 是因为
     //    「把东西交给他去办事」在语义上就是一次 `handle` 的准备动作。
     // ⚠️⚠️ **先把它从旧主名下摘出来，再判**（2026-10-06 实测踩到）：
-    //    物品开局就 `holder = npc000`（`initial.ts:326/338`），而 ⑤ 那句判据是
+    //    物品可能本来就在某人名下（开局直发那会儿是 `holder = npc000`；
+    //    2026-10-08 起开局改 `holder = null`（无人携带），但**转移**（从我身上
+    //    给别人）仍会撞上这句判据），而 ⑤ 那句判据是
     //    `it.holder && it.holder !== who.id ⇒「已被 X 持有」`
     //    ⇒ **原样判的话"从玩家交给属下"永远被自己拦死**（实测报「短匕首 已被 npc000 持有」）。
     //    这不是 ⑤ 判错了，是它假设「`loadItems` 里的东西本来不在任何人名下」——
-    //    那个假设在**装填**语义下不成立（东西本来就在玩家名下）。
+    //    那个假设在**装填**语义下不成立（东西可能本来就有主）。
     //    ⇒ 判据用一份**摘过旧主的副本**；真账本在判通过之后才换（单写者）。
     const staged = structuredClone(this.ledger);
     for (const id of ids) {
@@ -1461,18 +1518,26 @@ export class Session {
       // 旧主：谁原来拿着（要把他那一栏里摘掉）
       const old = next.entities.people.find((p) => p.items.indexOf(id) >= 0);
       if (old) old.items = old.items.filter((x) => x !== id);
-      if (toWhom !== PLAYER_ID) {
+      if (toWhom === '') {
+        // ⚠️ 2026-10-08（无人携带）：摘下 ＝ 不进任何人的 `items[]`，`holder=null`。
+        //    口径与账本层"摘干净"（apply/give 暂存）一致 —— `null` 就是"没人拿着"。
+        it.holder = null;
+        lines.push(`${it.name} 回到手牌区（无人携带）`);
+      } else if (toWhom !== PLAYER_ID) {
         const target = findPerson(next, toWhom);
         if (target) target.items = [...target.items, id];
+        it.holder = toWhom;
+        lines.push(`${who!.name} 带上 ${it.name}`);
       } else {
-        // ⚠️ 玩家**也在 `entities.people` 里**（`npc000` 那一行）——
-        //    开局那两样东西就是这么发的（`initial.ts`，见「两样东西由规则层直发」那条断言）。
-        //    ⇒ 收回自己就是"挂回 npc000 名下"，**没有第二处要写**。
+        // 玩家**也在 `entities.people` 里**（`npc000` 那一行）⇒ 装备到玩家身上
+        // 就是"挂回 npc000 名下"。⚠️ 这是**主动装备**（拖到他那张卡上），
+        // 与"拖回手牌区（无人携带）"是两个动作 —— 2026-10-08 起 UI 不再把
+        // "收回"发成 to=npc000。
         const meP = findPerson(next, PLAYER_ID);
         if (meP) meP.items = [...meP.items, id];
+        it.holder = toWhom;
+        lines.push(`${it.name} 装备到 ${meP ? meP.name : '你'} 身上`);
       }
-      it.holder = toWhom;
-      lines.push(toWhom === PLAYER_ID ? `${it.name} 收回` : `${who.name} 带上 ${it.name}`);
     }
     this.ledger = next;
     this.note(lines);
@@ -1637,6 +1702,11 @@ export class Session {
     const g = this.guard();
     if (g) return g;
     if (!this.ledger.scene) return { ok: false, error: '当前没有进行中的场景', notice: '', log: [], ended: false };
+    // ⚠️ 2026-10-08 用户裁定：轮数用尽**只禁输入、不自动跳结算** —— 服务端先拒一步
+    //    （前端已禁输入框；这道闸防的是绕过 UI 直接打接口）。
+    if (this.ledger.scene.round >= SCENE_ROUND_CAP) {
+      return { ok: false, error: `本场轮数已用尽（${SCENE_ROUND_CAP} 轮）—— 请点「结束对话」进行收尾结算`, notice: '', log: [], ended: false };
+    }
     if (text.trim() === '') return { ok: false, error: '得说点什么（空话连裁定都过不了）', notice: '', log: [], ended: false };
     // ⚠️ 场景 id 要**在 `adopt` 之前**抓下来 —— 收场那一轮结束后 `ledger.scene` 会被清掉，
     //    而这两条播报都要挂到那条 C 档事件上（右栏按事件分区，见 `FeedItem.eventId`）。
@@ -1785,7 +1855,12 @@ export class Session {
       attrs: { ...p.attrs },
       in_your_eyes: p.in_your_eyes,
       openness: p.openness,
-      items: p.items.map((i) => this.itemOf(i)).filter((x): x is UiItem => !!x),
+      // ⚠️⚠️ 2026-10-07（用户报告"点开人物卡和折叠人物卡看到的物品不一样"）：
+      //    **consumed 在 view 层就滤掉** —— 此前只靠各渲染点自己滤（手牌带滤了、
+      //    卡面词条/`@n`/详情页四槽都没滤）⇒ 同一件消耗品"手牌上没了、卡面上还在"。
+      //    ⇒ 口径只有一份：**`p.items` 进 view 时就是"身上真带着的"**，
+      //      消耗品从人物身上消失后，词条、`@n`、卡槽、加成四处同时消失。
+      items: p.items.map((i) => this.itemOf(i)).filter((x): x is UiItem => !!x && !x.consumed),
       recognized: [...p.recognized],
     };
   }
@@ -1916,11 +1991,21 @@ export class Session {
         kit: l.desire.kit ?? 0,
       },
       ambience: l.divination?.ambition ?? null,
-      // ⚠️ 只看**当前那一条**（一幕一次只铺一条）—— 它是"玩家此刻该读的"，
-      //    也是"还剩几条"的唯一来源（`prologuePending` 与它同源同一条判据）。
+      // ⚠️ 只看 live 里**第一条待处理**（2026-10-08 平铺后"当前在读"不再唯一）——
+      //    它是 `needsChoice`（站在末条上）的判据，也是"还剩几条"的唯一来源
+      //    （`prologuePending` 与它同源同一条判据）。`openingLaid` 给 UI 的
+      //    「直接正式开始游戏」按钮用：末条出现 ⇒ 按钮消失（用户裁定）。
       prologue: (() => {
         const pc = currentPrologueCard(l);
-        return pc ? { seq: pc.seq, total: PROLOGUE_TOTAL, day: pc.day, remaining: prologuePending(l) } : null;
+        return pc
+          ? {
+              seq: pc.seq,
+              total: PROLOGUE_TOTAL,
+              day: pc.day,
+              remaining: prologuePending(l),
+              openingLaid: l.events.live.some((e) => e.id === PROLOGUE_OPENING_ID),
+            }
+          : null;
       })(),
       // ⚠️ **2026-10-05**：欲望选择的输入口。
       //    `needsChoice` 的判据是「**正站在末条上**」—— 用 `currentPrologueCard` 的 `seq`

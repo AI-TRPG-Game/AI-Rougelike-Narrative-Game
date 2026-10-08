@@ -215,11 +215,11 @@ export const suites: Suite[] = [
         t.eq(book.kind, '特殊物品');
       });
 
-      t.test('★「两样东西」由规则层直发 ⇒ 开局就在玩家手上（不进档 A 的 `Delta`）', () => {
+      t.test('★「两样东西」由规则层直发 ⇒ 开局**无人携带**（2026-10-08 用户裁定：默认不装备给任何人，含玩家自己）', () => {
         const l = initialLedger();
         const me = l.entities.people.find((p) => p.id === PLAYER_ID)!;
-        t.deep(me.items, ['it001', 'it002'], '人物卡记 `items[]`');
-        for (const i of l.entities.items) t.eq(i.holder, PLAYER_ID, '物品卡记 `holder` —— 两面都由系统写');
+        t.deep(me.items, [], '人物卡 `items[]` 为空 —— 谁都不带（含艾德里安自己那张卡）');
+        for (const i of l.entities.items) t.eq(i.holder, null, '物品卡记 `holder=null` —— 无人携带，躺在手牌区');
       });
 
       t.test('★ 玩家占位：名字 艾德里安 · 六维全 5 · 两个关系字段填哨兵', () => {

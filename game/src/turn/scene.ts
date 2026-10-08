@@ -5,13 +5,14 @@
 //   开场景 ─┐
 //           ├─ 第 n 轮：玩家说一句话 → 一次叙事调用（**不掷骰**，2026-10-07 用户裁定）
 //           │            n ≤ SCENE_ROUND_CAP；玩家随时可退出
-//   收尾  ─┘  ← 末轮已 `scene_over=true` ⇒ **并入末轮，不再发那一次**
+//   收尾  ─┘  ← 末轮已 `scene_over=true` ⇒ **并入末轮，不再发那一次**；
+//              其余情况（含轮数用尽）一律等玩家**手动点「结束对话」**才发（2026-10-08 裁定）
 //
 // 四条纪律（每一条都在结构里有落点，不是注释）：
 //   · **同一场景内保留 assistant 历史**（§2.4）：凭据挂在 `Ledger.scene.conv`，
 //     规则层**只搬不解读**；跨天 / 跨事件才全清 —— 那由"场景置回 `null`"自然完成。
 //   · **每轮恰好一次调用**：场景不掷骰 ⇒ 没有裁定半、没有第二段
-//     （原"两段式下界 n / 上界 2n"的算术随之作废，n ≤ 7 ⇒ 恒 7 次）。
+//     （原"两段式下界 n / 上界 2n"的算术随之作废，n ≤ 上限 ⇒ 恒 n 次，＋手动收尾 0~1 次）。
 //     ⚠️ 历史里的 `assistant(tool_calls)` 必须**紧跟同 id 的 `tool` 回执**（DeepSeek 硬校验，
 //     2026-10-07 实测 400）—— 那份配对由 `llm/brain-llm.ts·sceneTurn` 维护。
 //   · **中途轮的资源冻结**（2026-10-06 清单第 4A.1 条）：`delta` 逐轮**丢弃**，
@@ -238,8 +239,9 @@ export function openScene(ledger: Ledger, input: SceneOpenInput): SceneOpenResul
  *    **整条退休**：没有 `verdict`、没有档位、没有危险区修正 —— 每轮就是**一次**纯叙事调用，
  *    资源照旧冻结到收尾（2026-10-06 清单第 4A.1 条不变）。
  * ⚠️ **主事者恒为玩家本人**：穿越的定义就是"他亲自去"，在场的人只影响叙事。
- * ⚠️ 轮次到达 `SCENE_ROUND_CAP` 时**自动收尾**（`轮数用尽`）—— 上限是**规则层强制的**，
- *    不指望模型在 prompt 里看到"（上限 7）"就自己收（那是把纪律交给最不该给的一方）。
+ * ⚠️ **轮次到达 `SCENE_ROUND_CAP` 时不再自动收尾**（2026-10-08 用户裁定）：
+ *    末轮照常返回回应、场景留在原地，玩家只能点「结束对话」手动收尾；
+ *    上限仍是规则层强制的 —— 超限的那次调用在开头就被抛掉（不指望模型自己数轮数）。
  */
 export async function sceneStep(
   ledger: Ledger,
@@ -250,6 +252,12 @@ export async function sceneStep(
   onNarrDelta?: (chunk: string, reset: boolean) => void,
 ): Promise<SceneStepResult> {
   const sc0 = sceneOf(ledger);
+  // ⚠️ **超限拒绝**（2026-10-08）：上限不再以"自动收尾"的形式强制，但**仍然强制** ——
+  //    到了上限还想再说一句 ⇒ 这里直接抛（正常路径到不了这：前端已禁输入、
+  //    `session.sceneSay` 先一步返回友好错误；这道闸防的是绕过 UI 的直调）。
+  if (sc0.round >= SCENE_ROUND_CAP) {
+    throw new Error(`本场已到轮次上限（${SCENE_ROUND_CAP} 轮）—— 不能再说，收尾只能由玩家点「结束对话」触发`);
+  }
   let l: Ledger = structuredClone(ledger);
   const ev = findEvent(l, sc0.eventId);
   const round = sc0.round + 1;
@@ -291,7 +299,11 @@ export async function sceneStep(
     calls,
   };
 
-  // ── ② 收场：末轮自己收了 ⇒ **并入**（省一次调用）；轮数用尽 ⇒ 还要一次收尾 ──
+  // ── ② 收场：末轮自己收了 ⇒ **并入**（省一次调用）。
+  //    ⚠️⚠️ 2026-10-08 用户裁定：**轮数用尽不再自动跳结算**（原话「后者只能在玩家手动点击了
+  //    结束对话按键后才能触发，轮数用尽仅仅只会禁止玩家继续在对话框输入文本，而不会自动跳转
+  //    结算」）⇒ 到达上限的那一轮就是普通一轮：末轮回应照常返回给玩家看，场景**留在原地**，
+  //    收尾只从「玩家点结束对话」那一条路（`sceneLeave`）进来。
   if (narr.scene_over === true) {
     const close = await finish(l, '已自然收束', rng, brain, {
       merged: true,
@@ -300,17 +312,6 @@ export async function sceneStep(
       desire: narr.欲向 ?? '无关',
       narration: narr.narration ?? '',
     });
-    return {
-      ...partial,
-      ledger: close.ledger,
-      log: [...log, ...close.log],
-      calls: calls + close.calls,
-      ended: close.reason,
-      close: stripLedger(close),
-    };
-  }
-  if (round >= SCENE_ROUND_CAP) {
-    const close = await finish(l, '轮数用尽', rng, brain, { merged: false });
     return {
       ...partial,
       ledger: close.ledger,
@@ -468,10 +469,10 @@ async function finish(
 }
 
 /**
- * **玩家主动退出**（或上层因别的原因强制收场）。
+ * **玩家主动退出**（或上层因别的原因强制收场）—— 2026-10-08 起这也是
+ * **轮数用尽后的唯一收尾路**（用户裁定：轮尽只禁输入，结算必须由玩家手动触发）。
  *
- * ⚠️ 退出**不是**"什么都没发生"：这一场的 `delta` 已经逐轮落过账了，
- *    所以仍要走一次收尾结算把 `summary` 补上（`轮数用尽` 之外的两个原因之一）。
+ * ⚠️ 退出**不是**"什么都没发生"：仍要走一次收尾结算把 `summary` / 整场 `delta` 补上。
  */
 export async function sceneLeave(
   ledger: Ledger,

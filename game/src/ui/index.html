@@ -575,6 +575,17 @@
     font-style:italic;
     color:color-mix(in srgb,var(--gold) 58%,transparent);
     pointer-events:none}
+  /* ⚠️⚠️ 2026-10-08（用户裁定）：序幕提示旁的「直接正式开始游戏」按钮。
+     ⚠️ `.cvtop` 整体 `pointer-events:none`（提示语不该挡地图交互）⇒
+        按钮必须**单独恢复** `pointer-events:auto`，否则点了没反应。
+     视觉与提示语同系（金色小字），但**不是斜体**（它可点，不是旁白）＋ 有 hover 反馈。 */
+  .cvtop .cvskip{pointer-events:auto;cursor:pointer;font-style:normal;
+    font-size:11.5px;letter-spacing:.03em;line-height:1.5;
+    margin-left:14px;padding:2px 12px;border-radius:6px;
+    border:1px solid color-mix(in srgb,var(--gold) 55%,transparent);
+    background:color-mix(in srgb,var(--gold) 14%,transparent);
+    color:color-mix(in srgb,var(--gold) 85%,#fff)}
+  .cvtop .cvskip:hover{background:color-mix(in srgb,var(--gold) 26%,transparent)}
 
   body.panning .canvas{cursor:grabbing}
   /* 台面：真正被 transform 的那层。⚠️ 点阵**留在窗上**（不跟着缩放）——
@@ -1033,9 +1044,19 @@
   .chgtoasts.out{animation:toastOut 480ms var(--ease) both}
   @keyframes toastIn{0%{opacity:0;transform:translate(-50%,-8px)}100%{opacity:1;transform:translate(-50%,0)}}
   @keyframes toastOut{0%{opacity:1}100%{opacity:0;transform:translate(-50%,-10px)}}
+  /* ⚠️⚠️ 2026-10-08（用户第 3 条）：**欲望面板首次自动弹出的引导 toast** ——
+     不在屏幕正中，而是**欲望弹窗左侧**（`render()` 末尾实量 `#modal` 左缘后内联定位）。
+     ⚠️ 必须另起一对 keyframes：`toastIn/Out` 的 transform 里都带 `translate(-50%,…)`，
+       而 `.desirehint` 的定位不走"left:50% ＋ translateX"那套 ⇒ 套用会把 toast 拽偏半个身位。 */
+  .chgtoasts.desirehint{left:auto;transform:none;text-align:left;
+    animation:desireHintIn 260ms var(--ease) both}
+  .chgtoasts.desirehint.out{animation:desireHintOut 480ms var(--ease) both}
+  @keyframes desireHintIn{0%{opacity:0}100%{opacity:1}}
+  @keyframes desireHintOut{0%{opacity:1}100%{opacity:0}}
   @media (prefers-reduced-motion:reduce){
     /* ⚠️ 减少动效时**保留那一句**（不演动画 ≠ 不告诉玩家）—— 只是不淡入淡出。 */
-    .chgtoasts{animation:none}.chgtoasts.out{animation:none;opacity:0}}
+    .chgtoasts{animation:none}.chgtoasts.out{animation:none;opacity:0}
+    .chgtoasts.desirehint{animation:none}.chgtoasts.desirehint.out{animation:none;opacity:0}}
 
   /* 到站弹一下（.arrive 挂 1400ms）*/
   .hcard.arrive{animation:arrivePop 1400ms var(--ease) both}
@@ -2315,9 +2336,10 @@
   /* ═══════════════════════════════════════════════════════════════════
      欲望宣言那一步（2026-10-06 用户裁定 · 问题 5/6/7）
      ─────────────────────────────────────────────────────────────────
-     四宣言**平铺并排**（`grid` 固定列宽，不摊开）—— 用户原话「宣言这么显示：
-     4个框里的文字主体分别是…」⇒ 要看得出是**四选一**的一组，不是一列说明。
-     ⚠️ 窄屏降成两列（`@media`）：四个并排在 640px 的弹窗里会挤到读不了字。
+     欲望宣言**平铺并排**（`grid` 固定两列，不摊开）—— 用户原话「宣言这么显示：
+     4个框里的文字主体分别是…」⇒ 要看得出是**多选一**的一组，不是一列说明。
+     ⚠️ 2026-10-08 起是 6 条（追加「猫」「龙」）⇒ 2×3 自动换行，无需改栅格。
+     ⚠️ 窄屏降成单列（`@media`）：多卡并排在 640px 的弹窗里会挤到读不了字。
      ═══════════════════════════════════════════════════════════════════ */
   .kitstage{margin-top:12px}
   .ktitle{font-weight:650;margin-bottom:8px}
@@ -2706,6 +2728,21 @@ let composeText = '';
 let detailOpen = null;
 
 /**
+ * 「原初欲望觉醒」刚结束 ⇒ 「你的欲望」面板**自动跳出来一次**的待办（2026-10-08 用户第 3 条）。
+ * 置位点：`pickCommit`（觉醒三步流程的**唯一收口** —— 自然走完与「直接正式开始游戏」
+ *   两条路都在这汇合，天然保证**每局一次**）；消费点：`render()` 里（判据全过才弹，
+ *   弹完即清）。
+ * ⚠️ 读档不会置位 ⇒ 读回来的旧局不会莫名其妙弹这块 —— 它只在"本局刚觉醒"时出现。
+ * ⚠️ `resetLocalViewState()` 里一并清（回标题屏 ⇒ 上一局的待办作废）。
+ */
+let desireIntroPending = false;
+/**
+ * 上面那件事的**配套引导 toast**待办 —— `render()` 末尾（面板 DOM 画完、
+ * 量得到 `#modal` 真实左缘了）才放。"放在欲望弹窗左侧"（2026-10-08 用户第 3 条原话）。
+ */
+let desireIntroToastWanted = false;
+
+/**
  * 「你的欲望」四行卡槽的**页面态**（还没点「确定」的那些）——
  * 2026-10-06 清单第 4B 条。⚠️ 与事件台那个 `picks` 是**两套**（不同键、不同数量），
  *   但**同一份纪律**：换一局 / 读档必须清掉。
@@ -2814,7 +2851,7 @@ let pickKit = -1;
 let pickAdv = {};
 /**
  * **选欲望的哪一步**（2026-10-06 用户裁定 · 问题 5/6/7：拆成三步）。
- * `''` ＝ 序幕那一句（带「选择你的欲望宣言」按钮）· `'kit'` ＝ 四宣言 · `'adv'` ＝ 优势属性
+ * `''` ＝ 序幕那一句（带「选择你的欲望宣言」按钮）· `'kit'` ＝ 宣言（6 条）· `'adv'` ＝ 优势属性
  * ⚠️ **切回标题屏/换局时必须清空**（与 `pickKit`/`pickAdv` 同一处重置，见 `resetLocalViewState`）。
  */
 let pickStage = '';
@@ -2968,6 +3005,36 @@ let dropHit = null;
 const $ = (id) => document.getElementById(id);
 // ⚠️ 这里**不许用 `??`**（ES2020）：旧浏览器遇到它会整段脚本解析失败 ⇒ 全白且无提示。
 const esc = (s) => String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+/**
+ * **LLM 散文的排版净化**（2026-10-07 用户报告「方框符号旁边有莫名其妙的空格」）：
+ * 模型偶尔在「」等全角标点旁夹半角空格、甚至把后引号单独甩到下一行行首——
+ * 多数正文容器不是 pre-wrap ⇒ 源文本里的换行塌成空格，读起来就是"凭空多一格"。
+ * 规则（**只动空白，不碰一个字**）：
+ *  · 行内连续空白归一成一个半角空格；行首尾清零；
+ *  · 全角标点（，。！？；：、」』）】》…—）**前后不留空格** —— 全角标点字形自带空隙，
+ *    再垫半角空格就是截图里那种"标点旁边凭空一格"；
+ *  · 行以收引号/标点开头（模型把 」 单独甩下来）⇒ **并回上一行**。
+ * ⚠️ pre-wrap 容器（结局屏等）的换行保留：只在行内与行界动手术。
+ */
+function tidyProse(s){
+  const lines = String(s || '').replace(/\r/g, '').split('\n')
+    .map(function (line) {
+      let t = line.replace(/[ \t]+/g, ' ').trim();
+      t = t.replace(/ ([，。！？；：、」』）】》…—])/g, '$1')
+           .replace(/([「『（《【]) /g, '$1')
+           .replace(/([，。！？；：、」』）】》…—]) /g, '$1');
+      return t;
+    })
+    .filter(Boolean);
+  const out = [];
+  for (const t of lines) {
+    if (out.length && /^[」』）】》，。！？；：、…—]/.test(t)) out[out.length - 1] += t;
+    else out.push(t);
+  }
+  return out.join('\n');
+}
+/** esc ＋ 净化一步到位（LLM 散文的渲染口都用这个，名字/titre 别用——那两类不需要动文本） */
+const escProse = (s) => esc(tidyProse(s));
 const arr = (x) => (Array.isArray(x) ? x : []);
 const cap = (a) => a.slice(0, 1).toUpperCase() + a.slice(1);
 
@@ -2986,6 +3053,22 @@ function pickOf(id){
   //    但 `.modes` 按钮的高亮会读到 undefined ⇒ 统一在此补齐，一处解决。
   if (picks[id].handling === undefined) picks[id].handling = '';
   return picks[id];
+}
+
+/**
+ * **事件台没点 ✔ 就退场 ⇒ 台面全清**（2026-10-08 用户裁定第 2 条）。
+ *
+ * 「×」「点遮罩」「直接点开别的卡」「去自建 / 去下一天」——只要**不是**点 ✔
+ * 离开的，摆上去的人物卡和垫的金币**全部回到手牌区**（`delete picks[id]`，
+ * 卡带靠 `deskUsedIds()` 立刻把他们画回来）。
+ * ⚠️ 只清**待处理**的事件台：「处理中」的回看台读的是账本，没有可清的页面态；
+ * ⚠️ 点 ✔ 的两条路（`commit` / `arrange`）**不经过这里** —— ✔ 之后的选择要么
+ *   已被服务端扣账（金币）、要么刻意留作回看（见 commit 那段注释），不能删。
+ */
+function discardDeskPicks(){
+  if (!detailOpen || detailOpen.kind !== 'event') return;
+  const e = eventOf(detailOpen.id);
+  if (e && e.status === '待处理') delete picks[detailOpen.id];
 }
 /**
  * **物格能选的东西 ＝ 这次已勾选的参与者身上带着的**（2026-09-20 用户裁定「收窄到这次去的人身上带的」）。
@@ -3327,6 +3410,26 @@ function render(){
   //    上面的声望系统（顶栏）与下面的手牌区，屏幕再矮也不会盖上去。
   syncOverlayBounds();
   const v = S.view;
+  // ⚠️⚠️ 2026-10-08（用户第 3 条）：「原初欲望觉醒」结束 ⇒ 「你的欲望」**自动跳出来一次**。
+  //    置位在 `pickCommit`（觉醒流程唯一收口，见那边的注释）；这里消费 ——
+  //    **判据全过才弹**，与 `renderOverlay` 的优先级链对齐：
+  //    · `!v.prologue` —— 已落在正文第 1 天（觉醒直通链中间那几次 render 不消费）
+  //    · 结算卡队列空 / 不在场景 —— "必须先看完"的打断压着头时不抢屏
+  //      （`renderOverlay` 里 scene 与 popupResults 两个分支都排在详情浮层之前；
+  //        直通第 1 天常带一张「结果占卜」结算卡 ⇒ 玩家点掉它的**那一帧**才弹，
+  //        这正是该有的次序：结果先看完，欲望面板后出来。）
+  //    · ⚠️ **不判 `v.popups`**：那是铺在画布上的档 A 待办（点不点由玩家），
+  //      「档 A 不拦详情查看」是既定裁定 —— 拿它当拦路判据会让欲望面板**永远**等不来
+  //      （新一天的待办通常非空，2026-10-08 实测：第 1 天就有「一封没有署名的请柬」）。
+  //    · 没开着别的详情 / 自拟 / 确认框 —— 自动弹不该顶掉玩家正开着的东西
+  //    ⚠️ **先清标志再弹**：玩家点掉面板之后的那些 render 不会重弹（每局一次）。
+  if (desireIntroPending && v && !v.prologue && !v.scene
+      && popupResults.length === 0
+      && !detailOpen && !composeOpen && !confirmAsk && !popupOpenId) {
+    desireIntroPending = false;
+    detailOpen = { kind: 'quest' };   // 自动打开欲望面板（与手点「你的欲望」卡同一层）
+    desireIntroToastWanted = true;    // 配套引导 —— render 末尾（DOM 就绪后）放到面板左侧
+  }
   renderTop(v); renderHand(v); renderLeft(v); renderMid(v); renderGod(v); renderFooter(v); renderOverlay(v);
   // ⚠️⚠️ 2026-10-06：**结局全屏演出**（用户裁定：「为结局做专门的全屏动画，而不是简单的弹窗」）。
   //    判据：`v.isOver && v.ending` ⇒ 这一局已经判定了。
@@ -3371,6 +3474,13 @@ function render(){
     const list = pendingChanges;
     pendingChanges = [];
     playChanges(list);
+  }
+  // ⚠️⚠️ 2026-10-08（用户第 3 条）：欲望面板**首次自动弹出**的配套引导 toast ——
+  //    必须放在 render 的**最末尾**：面板 DOM 画完了，才量得到 `#modal` 的真实左缘
+  //    （"放在欲望弹窗左侧"）。一次性待办，取完即清。
+  if (desireIntroToastWanted) {
+    desireIntroToastWanted = false;
+    desireIntroToast();
   }
 }
 
@@ -3744,15 +3854,16 @@ function handCard(p, isMe, i, opts){
   const tip = gone
     ? esc(p.name) + ' —— ' + esc(p.status) + '了'
     : '点开看' + esc(p.name) + '的细节；按住可以拖到某件事上';
-  // ⚠️⚠️ 2026-10-05（用户裁定四条）：**携带物品的可见化 ＋ 属性加成写进卡面**。
+  // ⚠️⚠️ 2026-10-07（用户裁定四条）：**携带物品的可见化 ＋ 属性加成写进卡面**。
   // ① `@n` 标记（他带了几件东西）—— 物品改成"拖到人身上"之后，
   //    **卡面上没有任何东西说"他带了刀"** ⇒ 玩家不知道该往谁身上拖。
-  //    `@` 是《口袋风暴》那套"寄放"记号，我们借它当"携带"的记号：
-  //    一个字符就够，不必画一排小图标（96px 的卡放不下一排图标）。
-  //    ⚠️ 数字是**他身上那几件**（`items.length`，view 已滤掉 `consumed`）。
-  const carried = arr(p.items).length;
+  //    ⚠️⚠️ 2026-10-07（用户报告"折叠与展开看到的物品不一样"）：
+  //      悬停 `@n` 现在**逐件报名字** —— 折叠态把"他带了什么"一句话说全，
+  //      与详情页四槽是同一份清单（`p.items` 进 view 时已滤 consumed，见 session.ts）。
+  const carriedList = arr(p.items);
+  const carried = carriedList.length;
   const atMark = carried
-    ? '<span class="hat" title="他带着 ' + carried + ' 件东西">@' + carried + '</span>'
+    ? '<span class="hat" title="他带着 ' + carried + ' 件：' + esc(carriedList.map(function (x) { return x.name; }).join('、')) + '">@' + carried + '</span>'
     : '';
   // ⚠️⚠️ 2026-10-06 用户裁定（**改**）：**携带物在人物卡「未展开」时不要出现**，
   //    「人物卡展开后再显示携带的物品就行」。
@@ -3782,7 +3893,12 @@ function handCard(p, isMe, i, opts){
   //    · 特殊物品 ⇒ 蓝色「特殊物品」词条；
   //    · 其余 ⇒ 不占卡面（详情页四个卡槽里有）。
   //    ⚠️ `@n` 总数**保留** —— 它回答"他带了几件"。
-  //    ⚠️ 数据来自 view 的 `p.items`（已是滤掉 consumed 的 UiItem），UI 不自己算。
+  //    ⚠️⚠️ 2026-10-08（用户裁定「在身上时会有对应的词条效果」）：**我自己的卡也画词条**。
+  //      旧口径（2026-10-07"我带的东西以物卡身份排在卡带上"）已随「物品默认无人携带」
+  //      改动**失效**：手牌区只画 `holder` 为空的物品 ⇒ 我带着的不再出现在卡带上，
+  //      词条成了卡面上唯一可见的携带痕迹。NPC 与我一视同仁 ——
+  //      词条跟着**物品的实际位置**走，不跟着物卡走。
+  //    ⚠️ 数据来自 view 的 `p.items`（进 view 时已滤 consumed，UI 不自己算）。
   const itemTags = (!gone ? arr(p.items).map(function (it) {
     const bs = arr(it.bonus);
     // ⚠️ 2026-10-07：加成词条带**属性图标**（`bonusTags` —— 三处共用同一个函数）
@@ -3854,17 +3970,41 @@ function isGone(p){ return !!p && p.id !== 'npc000' && (p.status === '死亡' ||
  * ⚠️ 判据是**页面态**（picks），不进账本：点对勾那一刻才是事实。
  */
 function deskUsedIds(){
-  // ⚠️ 2026-10-07（用户裁定·第二批）：**功能单（医馆/神殿）开着时同理**——
-  //    拖进去的那个人也从卡带收起（同一张卡不出现两次；取回的路是槽上的 ×）。
-  if (detailOpen && detailOpen.kind === 'fix') {
-    const pid = fixPicks[detailOpen.place] || '';
-    return new Set(pid ? [pid] : []);
+  // ⚠️⚠️ 2026-10-07（用户报告"人还没结算就回来了 / 换开别的事手牌跟着变"）：
+  //   收起名单必须是**全局**的，与"现在开着哪张卡"无关 —— 此前它只看 `detailOpen`
+  //   那一张 ⇒ 换开别的事件，A 事里放的人就从卡带上冒回来（页面态明明还占着）。
+  //   名单两半：
+  //   ① **页面态**：任何事件台 `picks` / 功能单 `fixPicks` 里放着、还没点 ✔ 的人
+  //     （取回的路不变：拖回手牌带 / 点槽取回）；
+  //   ② **账面态**：任何「处理中」（揭晓待办）事件的 `handler` ＋ `participants` ——
+  //     点 ✔ 成功后 `picks[evId]` 已被清掉（防金币双扣那一条）⇒ 卡带靠这一半
+  //     知道"他还在外面办着"。事件**揭晓**（离开 waiting）那天人自然回来；
+  //     医馆/神殿的休养单也在这一半里（handler = 休养者本人，养好才回来）。
+  // ⚠️⚠️ 2026-10-08（用户报告"事件结算完要**刷新**才看到被派遣的人物回来"）：
+  //   ①页面态的假设破了 —— `commit` 成功后 `picks[evId]` **刻意保留**（回看摆的样子），
+  //   事件揭晓结算后它**永远留在页面上** ⇒ 名单一直把"已经回来的人"收着，
+  //   卡带不画他，直到刷新（页面态清零）。
+  //   ⇒ 修法：①页面态只收**事件还活着**的那几条 —— 待处理（todo）／处理中（waiting）／
+  //     档 A 还没点（popups）。已结算（settled）或已离开三池的，页面态不许再收；
+  //     ②账面态本来就只看 `waiting`，事件揭晓即离开 ⇒ 自然释放，不用动。
+  const s = new Set();
+  const v = S && S.view;
+  const alive = new Set();
+  if (v) {
+    for (const e of arr(v.todo)) alive.add(e.id);
+    for (const e of arr(v.waiting)) alive.add(e.id);
+    for (const e of arr(v.popups)) alive.add(e.id);
   }
-  if (!(detailOpen && detailOpen.kind === 'event')) return null;
-  const ev = eventOf(detailOpen.id);
-  if (!ev) return null;
-  const pk = pickOf(detailOpen.id);
-  return new Set(arr(pk.participants));
+  for (const id in picks) {
+    const op = picks[id];
+    if (op && alive.has(id)) for (const pid of arr(op.participants)) s.add(pid);
+  }
+  for (const fp in fixPicks) if (fixPicks[fp]) s.add(fixPicks[fp]);
+  if (v) for (const e of arr(v.waiting)) {
+    if (e.handler) s.add(e.handler);
+    for (const pid of arr(e.participants)) s.add(pid);
+  }
+  return s;
 }
 
 function handRailInner(v){
@@ -3898,24 +4038,22 @@ function handRailInner(v){
   //      那要动账本形状 ＋ 快照 ＋ 档案，**本轮不动** —— 先把能做的做完。
   let i = 0;
   const rail = [];
-  // ⚠️ 2026-06：**玩家自己带的东西**（`me.items`）—— 独立成卡。
+  // ⚠️⚠️ 2026-10-08（用户裁定·**无人携带**）：卡带上的物卡 ＝ **没人拿着的东西**
+  //    （`holder=null`）—— 它们就是"手牌区"本身。装备中的东西（谁身上的，**含
+  //    玩家自己那张卡**）只在人物卡 `@n` 与详情页卡槽里看 —— "手牌区"与"艾德里安
+  //    身上"从此是两个地方（此前两件开局物品挂在玩家名下、又以卡带物卡渲染，
+  //    玩家把它们从自己卡上拖回手牌区会被"已经在你手上了"顶回来 —— 实测翻车）。
   //    滤掉 `consumed`：被消耗掉的不该还躺在卡带上。
   //    ⚠️ **必须在上面那些 `rail.push` 之前**（见下面那处注释的 TDZ 警告）。
   // ⚠️ 2026-10-07：**已经放进处理台的人**从卡带上收起（见 deskUsedIds 顶栏）。
   const usedIds = deskUsedIds();
   const isUsed = (id) => !!(usedIds && usedIds.has(id));
-  // ⚠️⚠️ 2026-10-07（用户裁定「物品位置唯一性」）：打开**我自己**的详情页时，
-  //    我的东西已经以四格卡槽的样子住在浮层里 ⇒ 手牌带再把同一件画一遍，
-  //    屏幕上就有两张「短匕首」——读起来像"物品被复制了"。
-  //    ⇒ 我的详情开着时，卡带把我的物品**收起**（关掉详情即回。`CARRY_CAP=4`
-  //      ⇒ 卡槽最多 4 格 = 我最多 4 件，卡槽就是全部，收得干干净净）。
-  const mySheetOpen = !!(detailOpen && detailOpen.kind === 'person' && detailOpen.id === me.id);
   // ⚠️⚠️ 2026-10-07 用户裁定（第三批）：**手牌排序＝ 金币 → 人物 → 凭证 → 特殊物品 → 装备**
   //   （消耗品跟在装备后）。同类之内**由新到旧**；「我」恒为人物类第一张。
   //   ⇒ 物品**不再**紧跟在"我"后面 —— 它们整段挪到凭证之后（`itemCards` 在下面 push）。
-  const myItems = arr(me.items).filter((it) => !it.consumed && !mySheetOpen).slice().reverse();
+  const handItems = arr(v.items).filter((it) => !it.consumed && !it.holder).slice().reverse();
   const kindRank = (k) => (k === '特殊物品' ? 0 : k === '装备' ? 1 : 2);   // 消耗品殿后
-  const itemCards = myItems.slice().sort((a, b) => kindRank(a.kind) - kindRank(b.kind))
+  const itemCards = handItems.slice().sort((a, b) => kindRank(a.kind) - kindRank(b.kind))
     .map((it) => handItemCard(it, i++));
   // ⚠️ 2026-10-05：**金币也是一张卡**（用户裁定：与人物卡一样统一为卡牌）。
   //    它排在**最前**：它是每一件事都可能要垫的那个数，先看到它省一次扫视。
@@ -4317,7 +4455,7 @@ function leftHtml(v){
     //   ⚠️ 触发的动作复用现成的 `detail` ＋ `kind="outsiders"`（`renderOverlay` 里那一支）——
     //      不新开一条动作通路（另开一处就多一处会漂的地方）。
     (outsiders.length
-      ? '<div class="card tap" data-act="detail" data-kind="outsiders"' +
+      ? '<div class="card tap" id="outsiderszone" data-act="detail" data-kind="outsiders"' +
         ' title="点开看还没站过来的这些人">' +
         '<h3>尚未入队（' + outsiders.length + '）</h3>' +
         '<div class="sub" style="font-size:12px;color:var(--muted)">'
@@ -4589,14 +4727,11 @@ function cardHtml(e, ro){
         : reqTag + '<span class="pdash">＋</span>') +
       '</div>');
   }
-  // ⚠️ 2026-10-06：人位**也接物卡**（物品直接给这次去的人）⇒ 挂 `data-to-whom`。
-  //    物卡拖到人位上 = 交给**这次去的人**：只放了他 ⇒ 给他；一个都没放 ⇒ 先给自己
-  //    （否则玩家在最想装填的那一步（还没选人）会发现"拖不进去"）。
-  //    ⚠️ 用 `[...chosen]` 取**第一个**（`participants` 的顺序 ＝ 放上去的顺序）——
-  //    放了三个人的时候"给谁"是有歧义的，取第一个是最可预期的一档。
-  const carryTo = chosen.size ? [...chosen][0] : meId;
-  const slotWho = '<div class="slotbox" data-drop="who" data-ev="' + e.id + '"' +
-    ' data-to-whom="' + carryTo + '">' +
+  // ⚠️ 2026-10-06：人位曾挂 `data-to-whom`（物卡拖到人位 ＝ 交给这次去的人）。
+  //    ⚠️⚠️ 2026-10-08（用户裁定·装备统一口径）：**这条旁路已撤** —— 装备只有
+  //    一条路（手牌物卡 → 人物卡），人位改回只收人卡，`data-to-whom` 一并摘掉
+  //    （它会把"落点语义"留给一个已经不存在的功能）。
+  const slotWho = '<div class="slotbox" data-drop="who" data-ev="' + e.id + '">' +
     '<div class="sh">人 · ' + (chosen.size ? chosen.size + ' / ' + SLOTS : '放 ' + SLOTS + ' 个位') +
       (needN ? '（至少 ' + needN + '）' : '') + '</div>' +
     reqLine +
@@ -4734,8 +4869,7 @@ function cardHtml(e, ro){
       // ⚠️ 2026-10-07（用户裁定·机制提示）：菱形上挂一句 tooltip（不占版面——
       //   用户第 5 条裁定过这一格"太花"，所以**只做悬停提示**，不加可见文字）：
       //   教的是"一件事最多同时派这几个人，而**多件事可以同时各办各的**"。
-      '<div class="diawrap" title="四个角各放一个人；不同的事可以同时各派各的人 —— 回到地图点开另一件接着派"><div class="dia" data-drop="who" data-ev="' + e.id +
-        '" data-to-whom="' + carryTo + '">' +
+      '<div class="diawrap" title="四个角各放一个人；不同的事可以同时各派各的人 —— 回到地图点开另一件接着派"><div class="dia" data-drop="who" data-ev="' + e.id + '">' +
         // ⚠️ 宽菱形描边（2026-10-07 用户裁定「菱形拉宽」）：尖端 (190,40)(340,140)(190,240)(40,140)，
         //   四个 .pslot 的中心正好钉在这四点上（坐标见 CSS）。
         '<svg class="diaborder" viewBox="0 0 380 280" aria-hidden="true">' +
@@ -4788,7 +4922,7 @@ function cardHtml(e, ro){
           // ⚠️ 2026-10-07 用户裁定：读数口径本身也要一句小字教给玩家。
           '<div class="attrhint">属性取参与者对应属性的最高值</div>'
         : '') +
-      '<div class="prose" style="margin-top:8px">' + esc(e.content) + '</div>' +
+      '<div class="prose" style="margin-top:8px">' + escProse(e.content) + '</div>' +
       // ⚠️ 2026-10-07（用户）：✔ 的硬前置写成常驻提醒 —— 回看态没有 ✔，也就不必提。
       (ro ? '' :
         '<div class="opshint">放置处理角色并选择一种处理方式后，再点 ✔ 完成处理</div>') +
@@ -4867,7 +5001,20 @@ function renderMid(v){
   //   ⇒ 它是**中栏的第一个元素**（真实布局块，不是绝对定位）⇒ 必然在整栏最顶、正中。
   //   ⚠️ **只在没有档 A 待办时出现**（有档 A 时台面里那句换成「就这一件（N）」，
   //     那才是玩家此刻该看的东西 —— 提示语不该在"必须处理"时占注意力）。
-  if (!(arr(v.popups).length)) {
+  // ⚠️⚠️ 2026-10-08（用户裁定）：这句话按阶段分三态 ——
+  //   ① 序幕（`v.prologue` 非空 = 还有待处理的序幕档 A）⇒ 序幕版提示；末条
+  //      「原初欲望的觉醒」还没铺出（`openingLaid` 假）时旁边带「直接正式开始游戏」按钮，
+  //      铺出后按钮消失（玩家该去点那张卡）。
+  //   ② 觉醒刚点完、还没翻进第 1 天的间隙（day 0 且序幕已完）⇒ 什么都不显示 ——
+  //      那一刻是 pickCommit 的自动收尾，不该被提示语抢注意力。
+  //   ③ 正式游戏（day ≥ 1 且没有档 A 待办）⇒ 原句照旧（下面 2026-06 那句）。
+  const pro = v.prologue;
+  if (pro) {
+    parts.push('<div class="cvtop">以下是你要处理的事件，请通过这些事件了解你自己和你的周边吧！' +
+      (pro.openingLaid ? '' :
+        '<button class="cvskip" data-act="skipPrologue" title="跳过剩下的序幕事件，直接翻开「原初欲望的觉醒」">直接正式开始游戏</button>') +
+      '</div>');
+  } else if (!(arr(v.popups).length) && (v.day || 0) > 0) {
     parts.push('<div class="cvtop">这些是摆在你面前的事，你也可以通过左下角的「我想做点什么」自己创建事件</div>');
   }
   parts.push(canvasHtml(v));
@@ -4888,7 +5035,7 @@ function sceneChatHtml(sc, v){
   const bubbles = [];
   // ① 首个 LLM 气泡 ＝ **事件的具体描述**（进场景重放一遍 —— 玩家不必退出去翻事件卡）
   bubbles.push('<div class="bub llm"><b>' + esc(sc.title) + '</b>' +
-    (ev && ev.content ? '<br>' + esc(ev.content) : '') + '</div>');
+    (ev && ev.content ? '<br>' + escProse(ev.content) : '') + '</div>');
   // ② 固定的邀请句
   bubbles.push('<div class="bub llm">你打算怎么做？</div>');
   // ③ 逐轮气泡
@@ -4897,16 +5044,21 @@ function sceneChatHtml(sc, v){
     const said = (seg[1] || '').replace(/^玩家「/, '').replace(/」$/, '');
     const narr = seg.slice(2).join('｜').trim();
     bubbles.push('<div class="bub me">' + esc(said) + '</div>');
-    bubbles.push('<div class="bub llm">' + (narr ? esc(narr) : '<span style="color:var(--muted)">（无回应）</span>') + '</div>');
+    bubbles.push('<div class="bub llm">' + (narr ? escProse(narr) : '<span style="color:var(--muted)">（无回应）</span>') + '</div>');
   }
+  // ⚠️ 2026-10-08 用户裁定：轮数用尽**只禁输入、不自动跳结算** —— 到了上限（round ≥ cap）
+  //    就把输入框和「说这一句」一起禁掉，只留「结束对话」让玩家**手动**触发收尾结算
+  //    （服务端 `sceneSay` 另有一道闸防绕过）。
+  const capped = sc.round >= sc.cap;
   return '<div class="evd-title"><span class="nm">场景 · ' + esc(sc.title) + '</span>' +
       '<span class="cost">第 ' + sc.round + ' / ' + sc.cap + ' 轮 · 在场 ' +
       sc.present.map((p) => esc(p.name)).join('、') + ' · 已报花销 ' + sc.spent +
       (sc.goldLocked ? '（最多 ' + sc.goldLocked + '）' : '') + '</span></div>' +
     '<div class="chatbox" id="chatbox">' + bubbles.join('') + '</div>' +
-    '<textarea id="sayText" style="width:100%;height:56px;margin-top:10px" placeholder="你要说什么 / 做什么……"></textarea>' +
-    '<div class="ops" style="margin-top:8px"><button class="primary" data-act="say">说这一句</button>' +
-      '<span class="sep">|</span><button data-act="leave">退出场景（收尾结算）</button></div>';
+    '<textarea id="sayText" style="width:100%;height:56px;margin-top:10px"' + (capped ? ' disabled' : '') +
+      ' placeholder="' + (capped ? '本场轮数已用尽 —— 请点「结束对话」收尾结算' : '你要说什么 / 做什么……') + '"></textarea>' +
+    '<div class="ops" style="margin-top:8px"><button class="primary" data-act="say"' + (capped ? ' disabled' : '') + '>说这一句</button>' +
+      '<span class="sep">|</span><button data-act="leave">结束对话（收尾结算）</button></div>';
 }
 
 
@@ -4948,6 +5100,9 @@ function hashOf(s){
  */
 /** 上一帧量到的台面宽度（首帧量不到时用它兜底，见 `canvasHtml` 里那三级回退） */
 var lastCanvasW = 0;
+// ⚠️ 2026-10-08：左栏（`.mapcorner`）底缘的**实测记忆** —— 首帧量不到时用它
+//    （与 `lastCanvasW` 同一手法，见 `canvasHtml` 里那段量测）。
+var lastCornerBottom = 0;
 
 function canvasSlots(ids, titles, W, H, opts){
   // ⚠️ 2026-10-07：`opts`（可省）—— 档 A 大牌与普通散事**共用同一套摆位算法**，
@@ -4982,7 +5137,14 @@ function canvasSlots(ids, titles, W, H, opts){
   var padL = 12, padR = 12, padB = 12;
   var padT = 10 + TOP0;
   var CORNER_W = 304;    // `.mapcorner` 292 ＋ 台面 12
-  var CORNER_H = 232;    // 那两块的高度（折叠态的上限）
+  // ⚠️ 270 是 2026-10-08 实测校准（1440×900 · 假brain）：`.mapcorner` offsetTop 12 ＋ 高 258
+  //    ⇒ 真实底缘 270，加 padT(10) ⇒ 回退 CORNER_BOTTOM=280，与实测记忆值（278，含 +8 呼吸）同档。
+  //    旧值 232 低于实际 ⇒ 首帧（量不到时）让开段偏短，行高随标题长度浮动时可能压上下沿。
+  var CORNER_H = 270;    // 那两块的高度 —— 回退值，实测优先（`opts.cornerBottom`）
+  // ⚠️⚠️ 2026-10-08（用户裁定「序幕事件不得与左栏重合」）：左栏底缘以**实测**为准 ——
+  //    写死值只是首帧兜底（上一帧是标题屏量不到）。调用侧量 `.mapcorner` 实际底缘传进来。
+  var CORNER_BOTTOM = (opts.cornerBottom !== undefined && opts.cornerBottom !== null)
+    ? opts.cornerBottom : (padT + CORNER_H);
 
   // 一张卡的真实高度：标题按 `CHIP_W` 的宽度折行 ⇒ 每行约 floor(CHIP_W / 13) 个汉字
   var perLine = Math.max(4, Math.floor(CHIP_W / 13));
@@ -5072,14 +5234,16 @@ function canvasSlots(ids, titles, W, H, opts){
   // ⚠️ **左上角那两块常驻卡**（`.mapcorner`，宽 304、高 232）让"上半身"几行的起点右移，
   //   那些行能放的格数因此**更少** ⇒ 于是自然会**往下多排几行**，直到出了那块的高度。
   //   这是"让开"与"排得下"两件事自动对齐的地方，不需要任何额外的挪动逻辑。
-  var CORNER_BOTTOM = padT + CORNER_H;
   var list2 = list.slice();          // 保持稳定顺序（`list` 的顺序由 hash 决定，不动它）
   var placed = [];
   var cursor = 0;
   var guardRows = 0;
   while (cursor < list2.length && guardRows < 40) {
     var mid = startY + guardRows * slotH + tallest / 2;
-    var x0 = (mid < CORNER_BOTTOM) ? padL + CORNER_W + 10 : padL;
+    // ⚠️⚠️ 2026-10-08：判据用**卡顶**（`mid − tallest/2`）而不是卡心 ——
+    //    卡心过了左栏底缘、卡顶还没过 ⇒ 这一行与左栏**下沿叠上**（序幕大牌高 55px，
+    //    卡心判据会漏进 27px 的重叠带）。以卡顶为准，整张卡都过了底缘才恢复全宽。
+    var x0 = (mid - tallest / 2 < CORNER_BOTTOM) ? padL + CORNER_W + 10 : padL;
     var right = W0 - padR;
     // ⚠️ **这一行放得下几格**：卡宽 ＋ 26 间隙。至少 1（否则起点那一格自己都放不下）。
     var perRow = Math.max(1, Math.floor((right - x0) / (CHIP_W + 26)));
@@ -5152,7 +5316,19 @@ function canvasHtml(v){
   if (!items.length && !pops.length) {
     // ⚠️ 2026-10-07：那句邀请**已经提成中栏的第一个元素**（`renderMid` 里那个 `.cvtop`）
     //   ⇒ 这里**不再画第二遍**（同一个口径两处呈现＝同一段话读两遍）。
-    return '<div class="card"><div class="empty">这会儿没有摆在你面前的事。</div></div>';
+    // ⚠️⚠️ 2026-10-07（用户报告"处理完所有事会把「你的欲望」和「未入队」顶掉"）：
+    //   **空态也必须走完整的 `.canvas` 结构** —— 「最终任务（欲望）」＋「尚未入队」
+    //   两块住在 `.canvas-pan` 里（`leftHtml(v)`），此前空态直接 return 一张普通卡片，
+    //   台面整个没了 ⇒ 那两块跟着消失，玩家以为功能被删了。
+    //   ⇒ 空态 = **同一张台面**（保持高度）＋ 台面正中一句空态话，两块照常浮在左上角。
+    return '<div class="canvas" style="min-height:420" data-canvas>' +
+      '<div class="canvas-pan">' + leftHtml(v) +
+        '<div class="card" style="position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);min-width:300px">' +
+          '<div class="empty">这会儿没有摆在你面前的事。</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="cvrecruit">当觉得事情很多、行动点不够用时，不妨试试招募人手，然后多派几个人去并行处理事件</div>' +
+    '</div>';
   }
   const byIdOf = new Map();
   items.forEach(function (e) { byIdOf.set(e.id, e); });
@@ -5182,6 +5358,23 @@ function canvasHtml(v){
   if (CW > 0) lastCanvasW = CW;
   else CW = lastCanvasW || Math.round((document.documentElement.clientWidth || 1280) * 0.55);
   const CANVAS_W = Math.max(360, CW - 28);   // 28 = 台面自身左右内边距
+  // ⚠️⚠️ 2026-10-08（用户裁定「序幕事件不得与左栏重合」）：左栏底缘**实测**后传给摆位 ——
+  //    与 `CANVAS_W` 同一手法（上一帧的 DOM 还在 ⇒ 量它；首帧量不到 ⇒ 回退；记忆防抖）。
+  //    ⚠️ `.mapcorner` 与 `.cvchip` 同住 `.canvas-pan`（都是 absolute）⇒ `offsetTop/Height`
+  //      给的就是**摆位坐标系里**的底缘，天然同源，不需要再换算。
+  //    ⚠️ 序幕/正文的首帧（上一帧是标题屏）量不到 ⇒ 用记忆值（`lastCornerBottom`），
+  //      连记忆都没有 ⇒ `canvasSlots` 内部回退（padT+232）。序幕期间左栏内容恒定，
+  //      一旦第二帧量到一次，整个序幕期都稳定准确。
+  //    ⚠️⚠️ 选择器必须限定 `.canvas-pan`：`leftHtml` 画了**两份** —— `renderLeft` 一份
+  //      进 `#colLeft`（旧壳，页面里隐藏）、`canvasHtml` 一份进 `.canvas-pan`（真台面）。
+  //      裸 `querySelector('.mapcorner')` 命中 DOM 靠前的 **colLeft 那个**（隐藏 ⇒ 恒 0）
+  //      ⇒ 实测从未生效过，一直在走回退值。（2026-10-08 实测发现。）
+  const mcEl = document.querySelector('.canvas-pan .mapcorner');
+  if (mcEl && mcEl.offsetHeight > 0) {
+    lastCornerBottom = mcEl.offsetTop + mcEl.offsetHeight + 8;   // +8：呼吸留白
+  }
+  // ⚠️ 量不到（0）就传 `undefined` —— `canvasSlots` 按参数缺失走它自己的回退（padT+232）
+  const CORNER_BOTTOM_MEAS = lastCornerBottom > 0 ? lastCornerBottom : undefined;
   // ⚠️⚠️ **2026-10-07 用户裁定：档 A 全部铺上地图**（不再独占正中、不再"点完一张才见下一张"）
   //   ⇒ **两批摆位**：第一遍给**档 A 大牌**（宽 340 的那一档），第二遍给散事 ——
   //     散事那遍带 `topOffset`＝大牌占掉的高度 ⇒ 两批上下错开，**绝不叠**。
@@ -5189,13 +5382,13 @@ function canvasHtml(v){
   //     ⇒ `padY:32 / lineH:23 / markH:0`（大牌没有状态行）。
   const popsSlots = pops.length
     ? canvasSlots(pops.map(function (e) { return e.id; }), titleOf, CANVAS_W, 420,
-        { chipW: 340, padY: 32, lineH: 23, markH: 0 })
+        { chipW: 340, padY: 32, lineH: 23, markH: 0, cornerBottom: CORNER_BOTTOM_MEAS })
     : null;
   const POP_H = popsSlots ? (popsSlots.needH || 0) : 0;
   // ⚠️ **两步调用**：第一步只为拿 `slotH × rows` 算出画布该多高，
   //   第二步把这个高度**喂回**摆位算法 —— 它内部要把整批卡**居中**在可用区里
   //   （不知道可用区高度就居不了中，那正是"贴着上沿/下沿"的原因）。
-  let slots = canvasSlots(items.map(function (e) { return e.id; }), titleOf, CANVAS_W, 420, { topOffset: POP_H });
+  let slots = canvasSlots(items.map(function (e) { return e.id; }), titleOf, CANVAS_W, 420, { topOffset: POP_H, cornerBottom: CORNER_BOTTOM_MEAS });
   // ⚠️ 2026-10-05 改了两次，最终口径是「**保底高度 ＋ 由 CSS 吃满剩余**」：
   //    · 第一次（只按条数算死）：只有 1~2 条事时画布仍 300~438px，
   //      一条 60px 的卡孤零零飘在中间 ⇒ **大片死黑看着像加载失败**。
@@ -5215,7 +5408,9 @@ function canvasHtml(v){
   //   **而不是把所有卡挤进现有高度里叠着**（用户 08:54 的原话：位置要限制在长方格内）。
   const H = Math.max(240, slots.needH || ((slots.slotH || 0) * slots.rows + 28), POP_H);
   // ⚠️ **第二步**：拿真高度重算一次（这一次才有"居中在可用区"与"让开左上角那两块"）
-  if (items.length > 1) slots = canvasSlots(items.map(function (e) { return e.id; }), titleOf, CANVAS_W, H, { topOffset: POP_H });
+  //   ⚠️⚠️ 2026-10-08 补传 `cornerBottom`：这一步在 `items.length > 1` 时**覆盖**第一步的
+  //     slots —— 漏传会让"让开左栏"在散事 ≥2 条时整个丢掉（序幕恰恰就是这种形态）。
+  if (items.length > 1) slots = canvasSlots(items.map(function (e) { return e.id; }), titleOf, CANVAS_W, H, { topOffset: POP_H, cornerBottom: CORNER_BOTTOM_MEAS });
   // ⚠️⚠️ 2026-10-06 清单第 4C 条（用户裁定第 15 条：**不需要**那个队列弹窗）
   //   ⇒ **不做弹窗**（理由与总纲同源：把最重要的并行度信息藏进"点开才看见"就是反的）
   //   ⇒ 改成：① 每个待揭晓的事件块**头顶画自己的"还要几格"** ＋ ② 地图区顶部一个**条数徽标**。
@@ -5418,7 +5613,7 @@ function sheetEvent(v, id){
     (e.reveal_at ? '<div class="sec"><div class="h">什么时候揭晓</div><div class="prose">第 ' +
       e.reveal_at.day + ' 天第 ' + e.reveal_at.used + ' 点（拨时针到点就揭晓）</div></div>' : '') +
     (texts.length ? '<div class="sec"><div class="h">到目前为止</div>' +
-      texts.map(function (f) { return '<div class="prose">' + esc(f.text) + '</div>'; }).join('') +
+      texts.map(function (f) { return '<div class="prose">' + escProse(f.text) + '</div>'; }).join('') +
       '</div>' : ''));
 }
 
@@ -5603,7 +5798,7 @@ function playEnding(e, opts){
   //    这一屏只留：结局名 ＋ 标题 ＋ 判词。
   const title = e.title || e.name;
   const kicker = failed ? '这一局到此为止' : '第 ' + e.day + ' 天 · 终局';
-  const txt = opts.text || endingText(e);
+  const txt = tidyProse(opts.text || endingText(e));
 
   el.className = failed ? 'es-fail' : '';
   el.innerHTML =
@@ -5725,6 +5920,10 @@ function resetLocalViewState(){
   composeOpen = false;
   composeText = '';
   detailOpen = null;
+  // ⚠️ 2026-10-08（用户第 3 条）：觉醒后的「自动弹欲望面板」待办也是局内一次性状态 ——
+  //    回标题屏就作废（下一局要弹自然有新的 pickCommit 置位）。
+  desireIntroPending = false;
+  desireIntroToastWanted = false;
   // ⚠️ 2026-10-07 用户第 3 条：「尚未入队」那块弹窗里**选中的是哪个人**也是页面态 ——
   //   不清的话，读另一局回来右边会先显示**上一局那个人**的详情（而他在新账本里可能不存在）。
   outSel = null;
@@ -5866,10 +6065,13 @@ function renderTitle(){
       //   ⚠️ 那个 `<div class="ts-sub">` 整条**删掉**（不是清空文字）——留着空元素
       //   会在标题与存档格之间留一段空隙，那正是"分块过多"的一部分。
       '<div class="ts-grid">' + cards.join('') + '</div>' +
+      // ⚠️ 2026-10-08 用户裁定：**live 版（玩家版）不显示种子入口** —— 随机种子是开发调试
+      //    用的，玩家不需要填（离线模式仍保留，方便复现与回归）。
       '<div class="ts-foot">' +
-        '<div class="ts-seed">指定种子 ' +
-          '<input id="seedInput" type="number" placeholder="留空 = 随机" style="width:118px">' +
-        '</div>' +
+        (meta.live ? '' :
+          '<div class="ts-seed">指定种子 ' +
+            '<input id="seedInput" type="number" placeholder="留空 = 随机" style="width:118px">' +
+          '</div>') +
       '</div>' +
     '</div>';
 }
@@ -6193,7 +6395,7 @@ function sheetPerson(v, id){
     //    槽内换位要认的是**外层 `.islot`**（见 pointerup 的槽位那一支）。
     return '<div class="icard" data-act="detail" data-kind="item" data-id="' + esc(it.id) + '"' +
       ' data-name="' + esc(it.name) + '" data-holder="' + esc(p.id) + '"' +
-      ' title="' + esc(it.name) + ' —— 点开看；按住拖到别的槽＝换位，拖到别人身上＝交给他">' +
+      ' title="' + esc(it.name) + ' —— 点开看；按住拖到别的槽＝换位，拖到手牌区＝收回（要给别人，先收回再从手牌拖）">' +
       '<div class="hn">' + esc(it.name) + '</div>' +
       // ⚠️ 2026-10-07：与手牌物卡同一套「绿词条＋属性图标」（`bonusTags`，三处共用）；
       //   特殊物品给蓝词条；两者皆无才落回类别素文本。
@@ -6269,7 +6471,7 @@ function renderOverlay(v){
   //    走 `.top`：手牌区留在可交互层；左气泡＝LLM 回应、右气泡＝玩家输入，
   //    进入时先重放事件描述 ＋ 固定邀请句（见 `sceneChatHtml`）。
   //    ⚠️ 它要**排在事件台之前**：场景一开，那件事就转「处理中」，
-  //      玩家在收束前只与这场对话交互（退出场景即回到台面）。
+  //      玩家在收束前只与这场对话交互（结束对话即回到台面）。
   //    ⚠️⚠️ 2026-10-07 用户裁定「档 A 与常规事件同级」⇒ 这里**不再要求档 A 已清** ——
   //      否则排布闸门放开后，玩家开着场景时来了档 A，对话窗会被堵成打不开。
   if (v && v.scene && !popupResults.length) {
@@ -6457,7 +6659,7 @@ function renderOverlay(v){
     // ⚠️ 2026-10-06（问题 5）：`needPick` 时**不再给标题与解说** ——
     //   那两句（「那东西还没有名字」／「它得由你命名…」）是原来那一屏的**解说**，
     //   而用户原话是「下面的东西全部不需要在这次弹窗出现」⇒ 一并去掉。
-    //   剩下的是**面板本身**（四宣言 or 属性），那才是玩家要操作的东西。
+    //   剩下的是**面板本身**（宣言 or 属性），那才是玩家要操作的东西。
     //   ⚠️ `needPick` 为假时（已选过）仍旧要标题 —— 那一屏的功能是"点掉最后一条"。
     // ⚠️⚠️ 2026-10-07 用户裁定：**先详情后选项** ——「点击事件后应该显示事件详情＋玩家的选项，
     //   玩家点击选后再呈现结果」。旧版把详情整段吞了、上来就是选项列表（序幕与正文的
@@ -6471,7 +6673,7 @@ function renderOverlay(v){
           '没有别人能替你走这一步 —— 定下来，当场就有下文。') +
       '</div>' +
       (needPick && pickStage === 'kit'
-        // ⚠️ 第二步：四宣言那一步（问题 6）—— **只给四句**，属性那步在它之后（问题 7）。
+        // ⚠️ 第二步：宣言那一步（问题 6）—— **只给那几句宣言**，属性那步在它之后（问题 7）。
         ? kitStageHtml(v.desirePick)
         : (needPick ? advStageHtml(v.desirePick) : '')) +
       (needPick ? '' : pe.options.map((o, i) => '<button class="opt" data-act="popup" data-ev="' + pe.id + '" data-i="' + i + '"' +
@@ -6486,7 +6688,11 @@ function renderOverlay(v){
   }
 
   // ①″ 详情浮层（B 轮）—— 点开一张卡看「具体内容」。
-  //     ⚠️ 它**让位给档 A**：那一步是强制的、点选即结算，不能被一个阅览层盖住。
+  //     ⚠️⚠️ 2026-10-08（用户裁定）：**档 A 未清不再拦详情查看** ——
+  //        旧判据 `!pending.length` 让"还没点完档 A"时点人物卡 / 物品卡 / 地点 / 凭证 /
+  //        「尚未入队」**毫无反应**（`detailOpen` 设了、这一支却被跳过 ⇒ 玩家看到的就是"点不开"）。
+  //        档 A 是"待办"，不是"锁屏"：与事件台（2026-10-07 放开）、功能单同一条纪律。
+  //        唯一还压它一头的只有 `popupResults`（结算正文是"必须先看完"的打断）。
   // ⚠️⚠️ 2026-10-05：**事件的详情不进浮层**（用户裁定：「点开后手牌区就不能拖拽了」）。
   //    病灶（用户实测 ＋ 截图）：浮层上面盖着**遮罩**，而拖拽源（底部手牌带）
   //    在遮罩下面 ⇒ 看得见卡、**拖不动**。而我们明明已经写好了 `canDropOn`
@@ -6496,7 +6702,7 @@ function renderOverlay(v){
   //    ⚠️ **只有事件走这条路**：人物/物品/这一局的详情仍是浮层 ——
   //    它们是"看一眼"，而事件是"要动手"，动手这件事必须在手牌旁边做。
 
-  if (detailOpen && v && !pending.length && !popupResults.length) {
+  if (detailOpen && v && !popupResults.length) {
 
     // ⚠️ 走 `.top`：**「你的欲望」与事件台同一图层**，手牌区不被遮挡
     //   ⇒ 凭证卡能从手牌区拖进四行卡位（用户 2026-07-07 原话：
@@ -6615,7 +6821,7 @@ function renderOverlay(v){
 /**
  * **第一步：选欲望宣言**（2026-10-06 用户裁定 · 问题 6）。
  *
- * ⚠️ 排版是裁定的一部分：**四个框平铺并排**（不是竖着四行），
+ * ⚠️ 排版是裁定的一部分：**几个框平铺并排**（两列栅格、几条就几格，不是竖着一列），
  *   每个框里 **大字主体 ＝ 手段＋目的合成的那句**，
  *   **下面小字 ＝ 宣言原话**当修饰性文字。
  *   原话（要删的那段）：「你受够了这样的生活，你下定决心要让塞兰王国迎来大变！」
@@ -6760,7 +6966,7 @@ function syncPick(dp){
 function eventCardHtml(e){
   return '<div style="margin-top:12px"><div class="title" style="font-weight:650">' + esc(e.title) + '</div>' +
     '<div class="sub" style="color:var(--muted)">' + esc(e.stage) + '</div>' +
-    '<div class="body">' + esc(e.content) + '</div></div>';
+    '<div class="body">' + escProse(e.content) + '</div></div>';
 }
 
 /**
@@ -6897,7 +7103,10 @@ function buildChanges(before, after){
   for (const id of Object.keys(ap)) {
     if (bp[id]) continue;
     const q = ap[id];
-    out.push({ kind: 'person-in', id: id, name: q.name, status: q.status });
+    // ⚠️ 2026-10-08：`affiliated` 必须带 —— 新人**入队/未入队**的落点与提醒文案
+    //    全靠它分流（用户裁定：入队飞卡带＋「加入了你的队伍」；
+    //    未入队飞「尚未入队」区＋「你可以在尚未入队区域查看」，3 秒）。
+    out.push({ kind: 'person-in', id: id, name: q.name, status: q.status, affiliated: !!q.affiliated });
   }
   for (const id of Object.keys(bp)) {
     const p = bp[id], q = ap[id];
@@ -6913,11 +7122,32 @@ function buildChanges(before, after){
   //    ⚠️ 比的是**所有人在带的所有东西**，不只是玩家的 ——
   //    LLM 给玩家新造一件东西时它落在玩家名下，但那是在"任何人的 items"里。
   const bi = indexItems(before), ai = indexItems(after);
+  // ⚠️⚠️ 2026-10-08：`indexItems` 只看**长在人身上的**（me/people 的 items）——
+  //    **手牌区（holder=null）的东西它看不见**，两处误判，都用顶层 `view.items`
+  //    （全量表 · holder 权威）交叉校正：
+  //    · **注册漏报**：LLM 注册新物品直接落手牌区（不在任何人身上）⇒ indexItems
+  //      收不到 ⇒「结算卡→手牌区」的飞牌（用户裁定）永远不触发 ⇒ 顶层表补发；
+  //    · **摘下误伤**：从人身上摘回手牌区 ⇒ indexItems 表现为"人身上消失"⇒ 误走
+  //      item-out（撕毁/灰飞）。用户裁定：**摘回手牌区不演**（卡牌出现在手牌区
+  //      本身就是提醒）⇒ 顶层表还在、无人携带、未消耗 ⇒ 静默跳过。
+  const bTop = new Map(arr(before && before.items).filter(Boolean).map((x) => [x.id, x]));
+  const aTop = arr(after && after.items).filter(Boolean);
+  // 顶层表新出现的 id（LLM 注册 ⇒ 落手牌区或直接给人）⇒ item-in（飞进手牌区/主人卡）
+  for (const x of aTop) {
+    if (bTop.has(x.id)) continue;
+    out.push({ kind: 'item-in', id: x.id, name: x.name, itemKind: x.kind, holder: x.holder ?? null });
+  }
   for (const k of Object.keys(ai)) {
-    if (!bi[k]) out.push({ kind: 'item-in', id: k, name: ai[k].name, itemKind: ai[k].kind, holder: ai[k].holder });
+    if (bi[k]) continue;
+    // 新"长到人身上"：顶层表里**已有**的 ⇒ 装备（手牌区→人）⇒ 从结算卡飞到主人卡；
+    // 顶层表里**没有**的 ⇒ 上一条已发过（LLM 直接给人），不重复。
+    if (!bTop.has(k)) continue;
+    out.push({ kind: 'item-in', id: k, name: ai[k].name, itemKind: ai[k].kind, holder: ai[k].holder });
   }
   for (const k of Object.keys(bi)) {
     if (!ai[k]) {
+      // ⚠️ 交叉验证：顶层表里还在、无人携带、未消耗 ⇒ 是**摘回手牌区**，不演；
+      //    真消失（消耗/失去/离册）才走撕毁/灰飞。
       // ⚠️ 演出分两档：**用过**（用掉的）与**失去**（被毁/被抢/落水）。
       //    规格里裁定的区分：用过 ＝ 撕毁；失去 ＝ 灰掉飞走。
       //    ⚠️⚠️ **判据是 `kind === '消耗品'`**（2026-10-06 改）——
@@ -6927,12 +7157,17 @@ function buildChanges(before, after){
       //    且消耗与否的**唯一口径**就是它（`rules/ability.ts·isOneShot` 由 kind 推导）⇒
       //    **同一份判据，零新增数据、零解析**。
       //    ⇒ 连带**删掉了**那个靠日志正则的 `markUsedFromLog`（连同 `usedItemNames`）。
+      const still = aTop.find((x) => x.id === k);
+      if (still && !still.holder && !still.consumed) continue;
       out.push({
         kind: 'item-out', id: k, name: bi[k].name,
         used: isOneShotKind(bi[k].kind),   // ⚠️ 与小卡那个「尽」**共用同一个函数**
       });
-    } else if (bi[k].holder !== ai[k].holder) {
-      // 换了主人 ＝ 转移（借出/收回）—— 也要看得见
+    } else if (bi[k].holder !== ai[k].holder && ai[k].holder) {
+      // ⚠️⚠️ 2026-10-08（用户裁定）：**摘回手牌区（新主人为空）不演** ——
+      //    玩家自己的拖拽（give to:''）与 LLM 的收回都一样：卡牌出现在手牌区
+      //    本身就是提醒，再飞一遍是重复打扰。装备给人（新主人有值）照演。
+      // 换了主人 ＝ 转移（借出）—— 也要看得见
       out.push({ kind: 'item-move', id: k, name: ai[k].name, from: bi[k].holder, to: ai[k].holder });
     }
   }
@@ -7018,16 +7253,42 @@ function cardOfItem(id){
  * ⇒ 一枚**屏幕中央的小提示**，1.6 秒后自己走掉。
  *    不做历史、不给关闭按钮（用户裁定「就淡出」）。
  */
-function toast(c){
+function toast(c, ms){
   const el = document.createElement('div');
   el.className = 'chgtoasts';
   // ⚠️ 一次动作可能有**多条**落点找不到 ⇒ 合并成一条（用户裁定过一次"合并同类"）
   el.textContent = c;
   document.body.appendChild(el);
+  // ⚠️ 2026-10-08：`ms` 可选 —— 默认还是 1.6 秒（用户裁定「就淡出」），
+  //    新人物出现那条要念完一句话（「你可以在尚未入队区域查看」）⇒ 用户点名 3 秒。
   setTimeout(function () {
     el.classList.add('out');
     setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 500);
-  }, 1600);
+  }, ms || 1600);
+}
+
+/**
+ * 「欲望面板首次自动弹出」的左侧引导 toast（2026-10-08 用户第 3 条，**3 秒**）。
+ * ⚠️ 只在 `render()` 末尾调用 —— 那时 `#modal`（`.sheetmode` 的欲望面板）已在 DOM 里，
+ *   实量它的左缘 ⇒ toast 贴在**弹窗左侧 18px**（`right = 视口宽 − modal左缘 + 18`）。
+ * ⚠️ 宽度自适应：左侧那条（让给 `.mapcorner` 的）不够 520px 就**收缩**（`r.left − 38`），
+ *   保底 180px —— 宁可窄一点也不许溢出屏幕左沿。
+ */
+function desireIntroToast(){
+  const m = $('modal');
+  if (!m) return;
+  const r = m.getBoundingClientRect();
+  const el = document.createElement('div');
+  el.className = 'chgtoasts desirehint';
+  el.style.maxWidth = Math.max(180, r.left - 38) + 'px';
+  el.style.right = (window.innerWidth - r.left + 18) + 'px';
+  el.style.top = Math.max(64, r.top + 8) + 'px';
+  el.textContent = '这是你本局的欲望界面，也是你让塞兰国迎来大变的决心！请仔细查看面板，努力在接下来的日子里获取凭证、增长欲念值吧！';
+  document.body.appendChild(el);
+  setTimeout(function () {
+    el.classList.add('out');
+    setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 500);
+  }, 3000);
 }
 
 /**
@@ -7062,6 +7323,21 @@ function spawnFly(from, to, cls, text, ms){
 /** 读一个元素的矩形（`null` 元素返回 `null` 而不是抛） */
 function rectOf(el){ return el ? el.getBoundingClientRect() : null; }
 
+/**
+ * **结算卡的矩形**（2026-10-08 · 用户点名「卡牌从结算卡飞到手牌区」的起点）。
+ *
+ * ⚠️ 只在结算界面**真的开着**时给矩形：`#overlay` 带着 `hidden`（`display:none`）时
+ *    `getBoundingClientRect` 全是 0 —— 从 (0,0) 飞过来等于"从左上角凭空冒出"，
+ *    比从屏幕边缘飞入还难看。⇒ 那时回退 `null`（＝屏幕右缘外飞入，老行为）。
+ */
+function settleRect(){
+  const ov = document.getElementById('overlay');
+  const m = document.getElementById('modal');
+  if (!ov || !m || ov.classList.contains('hidden')) return null;
+  const r = m.getBoundingClientRect();
+  return (r && r.width > 0 && r.height > 0) ? r : null;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // 九个具体演出（2026-10-06 · 用户逐条点名要的那几个）
 // ─────────────────────────────────────────────────────────────────
@@ -7071,15 +7347,29 @@ function rectOf(el){ return el ? el.getBoundingClientRect() : null; }
 //   · 动画**可跳过**（`prefers-reduced-motion`）—— 那时只给终态（亮一下）。
 // ═══════════════════════════════════════════════════════════════════
 
-/** ① 新人出现：从屏幕边缘外飞进来，落进卡带，弹一下。 */
+/** ① 新人出现（LLM 造的）—— 按「入队 / 未入队」分流（2026-10-08 用户裁定）：
+ *    · 入队 ⇒ 从**结算卡**飞进卡带 ＋「xx 加入了你的队伍」；
+ *    · 未入队 ⇒ 从**结算卡**飞进地图左上角的「尚未入队」入口卡
+ *      ＋ 3 秒提醒「xx 出现了，你可以在「尚未入队」区域查看」（用户点名 3 秒）。
+ *    ⚠️ 起点＝结算卡（`settleRect()`）：结算界面没开着时回退屏幕边缘飞入（老行为）。 */
 function flyInPerson(c){
-  const card = cardOfPerson(c.id);
-  // ⚠️ 落点不在（他在折叠区/离席）⇒ **给一句提示**而不是什么都不演
-  //    （"避免静默的状态变化"：什么也没看到 ＝ 那件事在观众眼里没发生）
-  if (!card) { toast(c.name + ' 加入了'); return; }
-  spawnFly(null, rectOf(card), 'fly-person', esc(c.name), 820);
-  card.classList.add('arrive');
-  setTimeout(function () { card.classList.remove('arrive'); }, 1400);
+  const from = settleRect();
+  if (c.affiliated) {
+    const card = cardOfPerson(c.id);
+    if (!card) { toast(c.name + ' 加入了你的队伍'); return; }
+    spawnFly(from, rectOf(card), 'fly-person joinfly', esc(c.name), 860);
+    card.classList.add('arrive');
+    setTimeout(function () { card.classList.remove('arrive'); }, 1400);
+    toast(c.name + ' 加入了你的队伍');
+    return;
+  }
+  // ⚠️ 未入队的人**不在卡带里**（他落在地图左上角那块）⇒ 落点是「尚未入队」入口卡
+  //    （`leftHtml` 给它写了 `id="outsiderszone"`）。入口卡也找不到 ⇒ 只剩那句话。
+  const zone = rectOf(document.getElementById('outsiderszone'));
+  if (zone) {
+    spawnFly(from, zone, 'fly-person leavefly', esc(c.name), 900);
+  }
+  toast(c.name + ' 出现了，你可以在「尚未入队」区域查看', 3000);
 }
 
 /** ② 离册（`lost.people` 那种，他整条从名册消失）：灰掉 ＋ 向上飞走。 */
@@ -7102,15 +7392,16 @@ function flyLeave(c){
   setTimeout(function () { card.classList.remove('leaving'); }, 1400);
 }
 
-/** ④ 入队：从未入队区飞回卡带。 */
+/** ④ 入队：从未入队区飞回卡带 ＋「xx 加入了你的队伍」（2026-10-08 用户裁定：入队也要提醒）。 */
 function flyJoin(c){
   const card = cardOfPerson(c.id);
-  if (!card) { toast(c.name + ' 入队了'); return; }
+  if (!card) { toast(c.name + ' 加入了你的队伍'); return; }
   const zone = document.getElementById('outsiderszone');
   const from = rectOf(zone);
   if (from) spawnFly(from, rectOf(card), 'fly-person joinfly', esc(c.name), 860);
   card.classList.add('arrive');
   setTimeout(function () { card.classList.remove('arrive'); }, 1400);
+  toast(c.name + ' 加入了你的队伍');
 }
 
 /** ⑤ 状态变了（重伤 / 濒死 / 死亡 / 疯狂）：就地亮一下 ＋ 卡面闪。 */
@@ -7122,13 +7413,14 @@ function flashPerson(c){
   setTimeout(function () { card.classList.remove('flash-bad', 'flash-warn'); }, 1500);
 }
 
-/** ⑥ 物品**获得**（用户裁定：与人物同机制）：从屏幕边缘飞进来，落进主人卡下。 */
+/** ⑥ 物品**获得**：从**结算卡**飞进手牌区（2026-10-08 用户点名「卡牌从结算卡飞到手牌区」；
+ *    结算界面没开着时回退屏幕边缘飞入）。落点可能是**人卡**（东西长在主人卡下的
+ *    `.carryrow`）⇒ 两者都试。 */
 function flyInItem(c){
   const card = cardOfItem(c.id);
-  // ⚠️ 落点可能是**人卡**（东西长在主人卡下的 `.carryrow`）⇒ 两者都试
   const to = rectOf(card) || rectOf(c.holder ? cardOfPerson(c.holder) : null);
   if (!to) { toast('得到了 ' + c.name); return; }
-  spawnFly(null, to, 'fly-item', esc(c.name), 820);
+  spawnFly(settleRect(), to, 'fly-item', esc(c.name), 820);
   if (card) {
     card.classList.add('arrive');
     setTimeout(function () { card.classList.remove('arrive'); }, 1400);
@@ -7208,7 +7500,7 @@ function isOneShotKind(kind){ return kind === '消耗品'; }
 function isGoneStatus(st){ return st === '死亡' || st === '疯狂'; }
 
 /**
- * 一张**物卡**（玩家自己带的东西，2026-10-06 恢复为卡带上的**独立卡**）。
+ * 一张**物卡**（卡带上"无人携带"的东西，2026-10-06 恢复为卡带上的**独立卡**）。
  *
  * ⚠️⚠️ **它为什么必须是独立卡，而不是贴在人卡下的小片**（这一条是踩出来的）：
  *   早先它画在人卡下面的 `.carryrow` 里，连锁出两个问题——
@@ -7219,6 +7511,11 @@ function isGoneStatus(st){ return st === '死亡' || st === '疯狂'; }
  *   ⇒ 独立成卡：人卡干净（点得开）、每件东西都是可拖的源（交得出去）。
  *   「他带了什么」在**点开的详情浮层**里看（`sheetPerson` 的「携带」一节）。
  *
+ * ⚠️⚠️ 2026-10-08（用户裁定·**无人携带**）：卡带上的物卡 ＝ **没人拿着**的东西
+ *   （`holder=null`）。它们没有 `data-to-whom`（不是"在谁名下"—— 没有谁）；
+ *   拖到人物卡 ＝ 装备给他；已经装备着的（含玩家自己卡上的）**不在这里**，
+ *   要摘下得点开那个人、从他的卡槽里拖回手牌区。
+ *
  * @param it view 里的物品（`{id, name, kind, bonus[], …}`）
  * @param i 卡带序号（`style="--i"`，CSS 变量，控制进场次序）
  */
@@ -7227,10 +7524,10 @@ function handItemCard(it, i){
   return '<div class="hcard item k' + esc(it.kind || '特殊物品') + '" style="--i:' + i + '"' +
     ' data-act="detail" data-kind="item" data-id="' + it.id + '"' +
     ' data-name="' + esc(it.name) + '"' +
-    // ⚠️ `data-to-whom="npc000"` ＝ 它**在谁名下**：拖到别人身上＝转给他，
-    //    拖回自己那张卡＝收回（`canGiveTo` 收 `npc000` 那一支）。
-    ' data-to-whom="npc000"' +
-    ' title="' + esc(it.name) + ' —— 点开看；按住拖到某人身上就是交给他">' +
+    // ⚠️ 2026-10-08（无人携带）：`data-holder=""` —— 拖拽源记它"没在任何人身上"
+    //    （`dragSrc.holder` 的缺省也改成了 ''，见 pointerdown 那段）。
+    ' data-holder=""' +
+    ' title="' + esc(it.name) + ' —— 点开看；按住拖到某人身上＝装备给他">' +
     '<div class="hn">' + esc(it.name)
       + (one ? '<span class="hone" title="他办完一件事就用掉了">尽</span>' : '') +
     '</div>' +
@@ -7469,7 +7766,8 @@ function rollPanelHtml(v){
 }
 
 function segmentHtml(text, cls){
-  const t = String(text || '');
+  // ⚠️ 2026-10-07：先净化再切段 —— 结算正文是 LLM 散文的重灾区（标点旁夹空格）。
+  const t = tidyProse(text);
   if (!t) return '';
   const parts = t.split(/(?<=[。！？；])/);
   if (parts.length > 12) return '<span class="' + cls + '">' + esc(t) + '</span>';
@@ -7758,7 +8056,18 @@ function nameOfId(id){
 // 分支的注释）—— 否则"已扣过的账"再被 `placedGold()` 减一次 = 凭空少钱。
 function placedGold(){
   let n = 0;
-  for (const id in picks) n += Math.max(0, (picks[id] && picks[id].gold) || 0);
+  for (const id in picks) {
+    // ⚠️⚠️ 2026-10-07（用户报告"吞金币"）：**只数还没交出去的台面**。
+    //   病灶：`commit`（✔）成功后 `picks[evId]` **刻意不清**（回看台要显示当时的摆法，
+    //   见 commit 分支那条注释）⇒ 里头的 `gold` 也留着；而这一笔钱服务端在提交那一刻
+    //   **已经真扣**（`view.gold` 已反映）⇒ `haveGold = view.gold − placedGold` 把它
+    //   **再减一次** ⇒ 手牌金币卡凭空少一截（事件了结前一直少，读起来就是"吞金币"）。
+    //   ⇒ 判据：事件已离开「待处理」（处理中/揭晓待办/已结算）⇒ 它台面上的钱
+    //     **不再参与净额**（回看台上的"已垫 X 金"照显示 —— 那是展示，不是扣款）。
+    const ev = eventOf(id);
+    if (!ev || ev.status !== '待处理') continue;
+    n += Math.max(0, (picks[id] && picks[id].gold) || 0);
+  }
   return n;
 }
 function haveGold(){ return S && S.view ? Math.max(0, (S.view.gold || 0) - placedGold()) : 0; }
@@ -7812,8 +8121,10 @@ function canGiveTo(itemId, toWhom){
   //    「未入队的人**不给你东西**」—— 人没在你这边，装备就不进他的账。
   if (toWhom !== v.me.id && !who.affiliated) return false;
   // 物品必须**存在且没被消耗**
-  const all = arr(v.me.items).concat(arr(v.people).flatMap((p) => arr(p.items)));
-  const it = all.find((x) => x.id === itemId);
+  // ⚠️ 2026-10-08（无人携带）：查**全量表** `v.items` —— 要给的东西可能还没在
+  //    任何人身上（`holder=null`，就躺在手牌区）；旧查法（我 ＋ 各人名下拼起来）
+  //    会把无人携带的误判成"不存在"。
+  const it = arr(v.items).find((x) => x.id === itemId && !x.consumed);
   if (!it) return false;
   // 他已经拿着 ⇒ 这次点的是**取回**（收回自己）或**转移**（给第三个人），都合法
   const already = arr(who.items).some((x) => x.id === itemId);
@@ -7843,16 +8154,25 @@ function goldPlacedAnywhere(){
 function canDropOn(slot, src){
   if (!slot || !src) return false;
   const d = slot.dataset.drop;
-  // ⚠️⚠️ 2026-10-06 修用户问题 10：人卡 / 物卡**没有 `data-drop`**
-  //   （那是事件卡里的槽才有的）⇒ `d` 是 `undefined` ⇒ 改前**掉出所有分支**返回 false
-  //   ⇒ 物卡拖到人卡上**永远不成立**（用户原话：「装备还是不能正常的通过拖拽
-  //   在人物身上装备和卸下」）。
-  //   ⇒ 这里显式认下**「这张卡的主人是它」**那条路（`data-to-whom`）：
-  //     · 物卡 → 交给那个人（`canGiveTo` 判容量与归属）
-  //     · 人卡 → 拖到别人身上是"让他去办"？⚠️ **不成立**（那要拖事件卡的「人」格），
-  //       所以人卡只认**拖到自己的卡上＝收回归属**那一支，其余一律拒。
+  // ⚠️⚠️ 2026-10-08（用户裁定·**装备统一口径**＋**无人携带**）：物品卡从一个人身上
+  //   拖下来时（holder 有值），**无论落到哪（包括落到另一个人身上）都不再自动装备给
+  //   任何人** —— 唯一合法去向是**手牌区（摘下，`holder=null`）**。想给谁，先摘回
+  //   手牌区，再**从手牌区的物品卡**拖到手牌区的人物卡 / 展开的人物卡上。
+  //   ⇒ "手牌区的物品卡" ＝ **无人携带**（`!holder`）—— 卡带上的物卡就是它。
+  //   ⇒ 无 `data-drop` 的落点只认两种：
+  //     · **详情页物品槽**（`.islot`，带 `data-slotwho`）：
+  //         同一个人名下 ⇒ 槽位换位（调生效优先级，原有功能）；
+  //         手牌区的东西 ⇒ 装进他的槽（= 给他，统一路径）。
+  //     · **卡级 `data-to-whom`**（手牌带人物卡 / 详情页人卡）：
+  //       只有**手牌区的东西**能落（= 装备给那张卡的主人）；别人身上的东西落上来一律拒。
+  if (d === undefined && slot.dataset.slotwho !== undefined) {
+    if (src.kind !== 'item') return false;
+    if (src.holder === slot.dataset.slotwho) return true;   // 同主 ⇒ 槽位换位
+    return !src.holder && canGiveTo(src.id, slot.dataset.slotwho);
+  }
   if (d === undefined && slot.dataset.toWhom !== undefined) {
-    return src.kind === 'item' ? canGiveTo(src.id, slot.dataset.toWhom) : false;
+    if (src.kind !== 'item') return false;
+    return !src.holder && canGiveTo(src.id, slot.dataset.toWhom);
   }
   // ⚠️⚠️ 2026-10-07：固定功能卡（医馆疗伤 / 神殿净化）—— 只收**一个人**，
   //    判据与 `/api/restore` 服务端那道闸同源：已满（≥3）的不用去、剩余行动力
@@ -7868,8 +8188,10 @@ function canDropOn(slot, src){
     //   · 金币：**金币槽里已垫的钱** —— 拖回带子 ＝ 取回垫金（页面态）。
     //   没被放置的人卡/金币拖回带子是无意义动作 ⇒ 亮"放不进"。
     if (src.kind === 'item') {
-      // 已经是我的东西 ⇒ 拖回带子是无意义动作，亮"放不进"（而不是假装收了一次）
-      return src.holder !== S.view.me.id && canGiveTo(src.id, S.view.me.id);
+      // ⚠️ 2026-10-08（**无人携带**）：拖回手牌带 ＝ **摘下**（`holder=null`，
+      //   不占任何人的携带位）—— 不管它现在在谁身上（含玩家自己那张卡）。
+      //   已经没人拿着（就在手牌区）再拖回带子是无意义动作 ⇒ 亮"放不进"。
+      return !!src.holder;
     }
     if (src.kind === 'person') {
       if (src.ev) return true;                       // 从事件台槽里抓起来的那位 —— 一定可取回
@@ -7920,17 +8242,14 @@ function canDropOn(slot, src){
     //    理由（用户原话）：「物品没有卡槽直接拖到人物卡上」＋「物品卡有个特效
     //    卡片缩小插入到人物卡上」—— 这条路把"谁带什么"变成**看得见的一层关系**，
     //    而"事件卡里一个孤零零的物品下拉框"表达不了"这东西归谁"。
-    //    ⇒ **这一格现在只收两种卡：人卡（派他去） ＋ 物卡（给他带上）。**
-    //      这两件事在这一格是**同一个动作**：「让这个人带着这个东西去办这件事」。
-    if (src.kind === 'item') {
-      // ⚠️⚠️ 2026-10-06：**物卡现在拖到「人位」上 ＝ 交给他**（用户裁定：
-      //    「物品没有卡槽直接拖到人物卡上」＋「能拖过去就能拖回来」）。
-      //    通路是 `/api/give`（`Session.give`），判据走**既有的**闸门 ⑤
-      //    （`CARRY_CAP = 4` ＋ 持有者唯一）—— UI 不自己算上限。
-      //    ⚠️ 物品**在别人身上**时也允许拖：拖给**另一个人**＝转移；
-      //      拖到**自己的卡**上＝收回（`canGiveTo` 那一支把 `npc000` 也算成合法落点）。
-      return canGiveTo(src.id, slot.dataset.toWhom || '');
-    }
+    // ⚠️⚠️ 2026-10-08（用户裁定·**装备统一口径**）：这一格**改回只收人卡**。
+    //    此前物卡落到人位 ＝ 交给这次去的人（`canGiveTo`）—— 但它与"从人身上
+    //    拖下来的东西只能回手牌区"的新口径打架：同一个格子，从手牌拖来是"给他"，
+    //    从别人身上拖来是"转交"，玩家分不出也不该分。⇒ 装备**只有一条路**：
+    //    先收回手牌区，再**从手牌的物品卡**拖到人物卡上。落到这里的物卡一律拒
+    //    （原因见 `dropBlockReason`）。
+    //    注：`pointerup` 的 who 分支把 `src.id` 塞进 `participants` —— 物卡过不了
+    //    上面的 `src.kind !== 'person'` 闸，不会再有"物件当人派出去"的暗门。
     // ⚠️⚠️ 2026-10-05：**这里刻意不接物卡** —— 见 `canDropOn` 顶上那段。
     //    用户裁定的方向是「物品拖到人身上」（改变**携带关系**），
     //    而携带关系住在 `Person.items`（账本字段），**UI 侧没有写它的通路**：
@@ -7949,6 +8268,21 @@ function canDropOn(slot, src){
     //    ⚠️ 已经在这条里的人**可以再点一下取回来** ⇒ 重复放自己不算"超上限"。
     const picked = arr(pickOf(slot.dataset.ev).participants);
     if (picked.indexOf(src.id) >= 0) return true;
+    // ⚠️⚠️ 2026-10-07（用户报告"卡槽只能放某个人却让玩家一遍遍试"）：**必放位只收那位本人**。
+    //   此前拖拽**不判** `required_person`（只有 ✔ 的 `needOk` 在判）⇒ 把别人放进 ① 号位
+    //   也"放得上"，可 ✔ 永远灰着 —— 玩家只能一个个试。现在：
+    //   「非 X 不可」且他还没进来时，**① 号位只收 X**（别人拖进去亮出原因，见
+    //   `dropBlockReason`）；②③④ 照常收别人。他进来之后 ① 恢复普通位。
+    //   ⚠️ 点选那一路（复选框）不受此限 —— 那是按名单勾人，`needOk` 照旧把关。
+    //   ⚠️⚠️ 2026-10-08（用户报告"所有事件卡都放不上任何人物卡"的真凶）：
+    //     这里原本写的是 **`e.requiredPerson`** —— 而本函数里定义的变量叫 **`ev`**，
+    //     `e` 根本不存在 ⇒ 每次拖人卡进事件槽都在这一行抛 `ReferenceError`，
+    //     被 pointerup 的 try/finally **静默吞掉**（不落卡、不闪原因、控制台才有红字）
+    //     ⇒ **所有事件槽对所有人物卡一律失败**。改前先有 `ev`（7984 行），笔误而已。
+    if (ev.requiredPerson && slot.dataset.sloti === '0' &&
+        picked.indexOf(ev.requiredPerson.id) < 0 && src.id !== ev.requiredPerson.id) {
+      return false;
+    }
     if (picked.length >= 4) return false;
     if (picked.length >= (ev.max_people || 0)) return false;
     if (src.id === S.view.me.id) return ev.dispatchable !== '仅派遣';
@@ -7984,6 +8318,68 @@ function canDropOn(slot, src){
     return src.kind === 'gold' && (S.view ? (S.view.gold || 0) : 0) > 0;
   }
   return false;
+}
+
+/**
+ * **这一格为什么不收这张卡**（2026-10-07 用户报告"有的时候谁都放不上去，很奇怪"）。
+ *
+ * ⚠️ 病根不是某一个判据错了，是**拒绝发生时一句话都不说**：
+ *   `canDropOn` 返回 false ⇒ 槽亮一下红、松手毫无反应 ⇒ 玩家只能把手里每张卡
+ *   都试一遍（"一遍遍试"的原话就是它）。⇒ 拒绝的那一下**在槽上闪人话原因**
+ *   （`flashSlot`，与金币槽取回同一套视觉）。判据与 `canDropOn` **同源同序**
+ *   （第一句命中的就是真正卡住的那条），但不改判据本身 —— 只是把它翻译成人话。
+ */
+function dropBlockReason(slot, src){
+  if (!slot || !src) return '';
+  const d = slot.dataset.drop;
+  if (d === 'who') {
+    const ev = eventOf(slot.dataset.ev);
+    if (!ev) return '';
+    if (ev.status !== '待处理') return '这件事已经交出去了';
+    if (src.kind === 'item') return '带东西给他：先拖回手牌区，再从手牌区的物品卡拖到他身上';
+    if (src.kind !== 'person') return '这一格只收人卡';
+    const picked = arr(pickOf(slot.dataset.ev).participants);
+    if (picked.indexOf(src.id) >= 0) return '';
+    if (ev.requiredPerson && slot.dataset.sloti === '0' &&
+        picked.indexOf(ev.requiredPerson.id) < 0 && src.id !== ev.requiredPerson.id) {
+      return '① 号位是非 ' + ev.requiredPerson.name + ' 不可的位';
+    }
+    if (picked.length >= 4) return '四个位都满了';
+    if (picked.length >= (ev.max_people || 0)) return '这件事至多 ' + ev.max_people + ' 人';
+    if (src.id === S.view.me.id) return '这件事只派人去，你亲自去不了';
+    const p = arr(S.view.people).find((x) => x.id === src.id);
+    if (!p) return '';
+    if (!p.affiliated) return p.name + ' 还没站到你这边';
+    if (p.hp <= 1) return p.name + ' 只剩一口气';
+    if (p.san <= 1) return p.name + ' SAN 见底';
+    if (p.away) return p.name + ' 还在办别的事、人没回来';
+    return p.name + ' 今天调不动';
+  }
+  if (d === 'fix') return '他不需要（或今天去不了）' + slot.dataset.fix;
+  if (d === 'hand') {
+    // ⚠️ 2026-10-08（**无人携带**）：摘下没有携带位上限（手牌区不是槽），
+    //   拒绝只剩一种情形 —— 它本来就没在任何人身上（就在手牌区）。
+    if (src.kind === 'item') {
+      if (!src.holder) return '这件没有装备在任何人身上 —— 它就在手牌区';
+      return '';
+    }
+    return '这张没有被放出去，收不回';
+  }
+  // ⚠️ 2026-10-08（装备统一口径＋无人携带）：卡级 / 槽级落点（无 `data-drop`）被拒
+  //   也要说人话 —— 最常见的误操作就是"把别人身上的东西直接往第三个人身上放"。
+  //   "手牌区的物品卡" ＝ 无人携带（`!holder`）；谁身上的（含玩家自己那张卡）
+  //   都得先摘回手牌区。
+  if (d === undefined && slot.dataset.slotwho !== undefined) {
+    if (src.kind !== 'item') return '这一格只收物品卡';
+    if (src.holder) return '先拖回手牌区，再从手牌区的物品卡拖进来';
+    return '他带不动了（身上已满 / 这不是你的东西）';
+  }
+  if (d === undefined && slot.dataset.toWhom !== undefined) {
+    if (src.kind !== 'item') return '装备物品要从手牌区的物品卡拖起';
+    if (src.holder) return '先拖回手牌区，再从手牌区的物品卡拖给要给的人';
+    return '他带不动了（身上已满 / 这不是你的东西）';
+  }
+  return '';
 }
 
 /**
@@ -8076,7 +8472,11 @@ document.addEventListener('pointerdown', (ev) => {
   // ⚠️ `ev` ＝ 金币从**哪件事**的金币槽被抓起来的（`data-ev`）——
   //    拖回手牌带时只退这一件事的垫金，不清别家。
   dragSrc = { kind: card.dataset.kind, id: theId, dim: card.dataset.vdim || '',
-              holder: card.dataset.holder || 'npc000',
+              // ⚠️ 2026-10-08（无人携带）：缺省改 '' ＝ 没在任何人身上（卡带物卡）——
+              //   旧缺省 'npc000' 会把卡带物卡误记成"装备在玩家身上"
+              //   （从自己卡上拖回手牌区被"已经在你手上了"顶回来 —— 实测翻车）。
+              //   人物/金币拖拽从不读 holder，缺省只影响物卡。
+              holder: card.dataset.holder !== undefined ? card.dataset.holder : '',
               ev: card.dataset.ev || '',
               name: (nm && nm.textContent) || card.dataset.name || theId || '',
               x: ev.clientX, y: ev.clientY };
@@ -8132,12 +8532,27 @@ document.addEventListener('pointermove', (ev) => {
   //     卡级 `data-to-whom` 先被认走 ⇒ 变成"把人交给某人"（无此语义）⇒ 放不进。
   //     ⇒ 「交给某人」是**物卡专属**语义 ⇒ 只有物卡才走卡级那一档；
   //       人卡/金币直接落带子（整条带都是「取回」）。
+  //   ⚠️⚠️ 2026-10-07（用户报告"从皮普身上拖东西收回，却自动装备到艾德里安身上"）：
+  //     **卡级「交给」只认"我自己的东西"** —— 别人的东西往带上丢，落点常砸在带上
+  //     **某张人物卡**上，卡级 `data-to-whom` 先被认走 ⇒ 变成"转交给那位"（实测翻车：
+  //     想收回，东西却无声飞到了艾德里安身上）。⇒ 两半拆开：
+  //       · **我持有的东西**（holder = 我）⇒ 卡级 ＝ 送人（原有功能不动）；
+  //       · **别人身上的东西** ⇒ 只有落到**我自己的卡**上（data-to-whom = 我）才收，
+  //         落到别的 NPC 卡上 = 意图不明 ⇒ 落穿到带子 ＝ **收回**（玩家口径：
+  //         「拖到手牌区 ＝ 拿回来」，不许被半路截走）。
+  //     直接皮普→艾德里安的转移仍可走事件台人位（.pslot 先认，不受影响）。
+  //   ⚠️⚠️ 2026-10-08（用户裁定·**装备统一口径**＋**无人携带**）：
+  //     物品卡**从人身上拖下来**（holder 有值，含玩家自己那张卡）时，**无论落到哪**
+  //     都不许被任何卡级落点截走 —— 唯一去向是**手牌带（摘下，holder=null）**。
+  //     "给出去"只能**从手牌区的物品卡**发起 ＝ **无人携带**（`!holder`）⇒
+  //     卡级候选只认它；落到带上任何卡（包括别人的人物卡）都落穿到带子 ＝ 摘下。
+  //     装备统一走：手牌区物卡 → 手牌人物卡 / 展开人物卡。
+  const cardHit = under && under.closest('.hcard[data-to-whom],.pcard[data-to-whom],.icard[data-to-whom]');
   const t = under
     ? (under.closest('.pslot')
        || under.closest('.islot')
-       || (dragSrc && dragSrc.kind === 'item'
-           && under.closest('.hcard[data-to-whom],.pcard[data-to-whom],.icard[data-to-whom]')
-           ? under.closest('[data-to-whom]')
+       || (dragSrc && dragSrc.kind === 'item' && !dragSrc.holder && cardHit
+           ? cardHit
            : null)
        || under.closest('[data-drop]'))
     : null;
@@ -8196,12 +8611,15 @@ document.addEventListener('pointerup', async () => {
         fixGold[dropHit.dataset.fix] = true;
         render();
       } else if (dropHit.dataset.drop === 'hand') {
-        // ⚠️⚠️ 2026-10-07（用户第 1 条）：拖回手牌带 ＝ **拿回来**，按卡种分流：
-        //   · 物卡 ⇒ 收回自己（`/api/give` to=me，账本动作，原有）；
+    // ⚠️⚠️ 2026-10-07（用户第 1 条）：拖回手牌带 ＝ **拿回来**，按卡种分流：
+    //   · 物卡 ⇒ **摘下**（2026-10-08 起：`/api/give` to='' ＝ 无人携带，不占携带位）；
         //   · 人卡 ⇒ 从事件台/功能单的槽里**取回**（纯页面态：清 `picks` / `fixPicks`）；
         //   · 金币 ⇒ 取回垫金（`src.ev` 指明从哪件事抓的 ⇒ 只退那一件；没指明 ⇒ 全退）。
         if (src.kind === 'item') {
-          await api('/api/give', { to: S.view.me.id, items: [src.id] }, '收回来了…');
+          // ⚠️ 2026-10-08（**无人携带**）：to:'' ＝ 摘下回手牌区（holder=null，
+          //   不占携带位）—— 不再发 to=me（那是"装备到艾德里安身上"，是另一个动作：
+          //   只有把它拖到他自己那张人物卡上才会发生）。
+          await api('/api/give', { to: '', items: [src.id] }, '摘下，放回手牌区…');
           return;
         }
         if (src.kind === 'person') {
@@ -8267,7 +8685,10 @@ document.addEventListener('pointerup', async () => {
           : dropHit.closest('[data-to-whom]');
         const to = host && host.dataset.toWhom;
         if (to) {
-          await api('/api/give', { to: to, items: [src.id] }, (to === S.view.me.id ? '收回…' : '交给他…'));
+          // ⚠️ 2026-10-08：到这里的手牌物卡必是**装备**（`canDropOn` 只放行无 holder 的）。
+          //   旧话术「收回…」是"物卡跟着玩家走"旧模型的残留 —— 现在拖到玩家卡上
+          //   = 把这件东西**带在自己身上**（装备），与交给别人同一条通路。
+          await api('/api/give', { to: to, items: [src.id] }, (to === S.view.me.id ? '带在身上…' : '交给他…'));
           // ⚠️ 交给他之后卡带上那张物卡要消失 ⇒ `api()` 里的 `render()` 会重画。
           //   ⚠️ 2026-10-07 用户裁定：旧的"缩小插进人卡"演出（markCarried）**已删** ——
           //     「删掉这个奇怪的携带特效」。
@@ -8307,6 +8728,13 @@ document.addEventListener('pointerup', async () => {
         //     比留空危险得多（那会让那个字段变成一串人物 id）。
       }
       render();
+    } else if (dropHit) {
+      // ⚠️⚠️ 2026-10-07（用户报告"放不上去就让玩家一遍遍试"）：**拒绝要说人话**。
+      //   此前拒绝 = 槽亮一下红、松手无声 ⇒ 玩家只能把每张卡都试一遍。
+      //   ⇒ 松手那一刻在槽上闪一句"为什么不收"（`dropBlockReason` 与 canDropOn
+      //     同源同序，只翻译不另判）。
+      const why = dropBlockReason(dropHit, src);
+      if (why) flashSlot(dropHit, why);
     }
   }
   } finally {
@@ -8360,6 +8788,15 @@ document.addEventListener('click', async (ev) => {
   if (!el) return;
   const act = el.dataset.act;
   const evId = el.dataset.ev;
+  // ⚠️⚠️ 2026-10-08（用户裁定）：序幕没走完（`S.view.prologue` 非空 = 还有待处理的
+  //   序幕档 A）之前，「我想做点什么」/「拨钟」/「进下一天」一律拦下，提示
+  //   「请先完成游戏序幕」—— 不发注定被闸门 ④ 拒掉的请求。
+  //   ⚠️ pickCommit 内部直调 /api/nextday **不经过这里**（它不是按钮点击）：
+  //   觉醒收尾走的正是那条路，不会被误伤。
+  if ((act === 'openCompose' || act === 'dial' || act === 'nextday') && S && S.view && S.view.prologue) {
+    banner = [{ kind: 'err', text: '请先完成游戏序幕' }];
+    render(); return;
+  }
   if (act === 'pick') {
     const p = pickOf(evId);
     const set = new Set(p.participants);
@@ -8410,7 +8847,8 @@ document.addEventListener('click', async (ev) => {
   // ⚠️ 5.4 的「×」＝退出当前事件。⚠️ **连本地暂存一起清掉** ——
   //   留着它的话，下次点开同一件事会看到上一次的选择（像是"我没选过"）。
   if (act === 'closeDetail') {
-    if (evId) delete picks[evId];
+    if (evId) delete picks[evId];   // 带 data-ev 的关闭路（保留）
+    discardDeskPicks();             // ⚠️ 2026-10-08：台头那颗 × 不带 data-ev ⇒ 靠 detailOpen 认领
     detailOpen = null;
     render(); return;
   }
@@ -8508,11 +8946,14 @@ document.addEventListener('click', async (ev) => {
   //    ⇒ 万一两者同时为真，**详情永远打不开**（渲染核查的中盘那趟就这么红了 4 条）。
   //    现实里点得到卡片就点不到页脚那颗按钮（遮罩盖着全屏），但"靠玩家点不到"不是一条判据 ——
   //    所以两个方向都显式关掉对方，状态里不存在"两层同时开着"。
-  if (act === 'openCompose') { composeOpen = true; composeText = ''; detailOpen = null; render(); return; }
+  if (act === 'openCompose') { composeOpen = true; composeText = ''; discardDeskPicks(); detailOpen = null; render(); return; }
   if (act === 'closeCompose') { composeOpen = false; composeText = ''; render(); return; }
   if (act === 'detail') {
     // B 轮：整张卡可点 ⇒ 点开它对应的详情浮层。**不发请求、不碰账本。**
     composeOpen = false;
+    // ⚠️ 2026-10-08（用户裁定第 2 条）：从一张开着的事件台直接点开别的卡 ＝
+    //    没点 ✔ 就退场 ⇒ 台面全清（人物卡/金币回手牌区）。
+    discardDeskPicks();
     // ⚠️ 2026-10-06：凭证卡的标识在 `data-vid`（不是 `data-id`）—— 同 `dragSrc` 那处回退
     detailOpen = { kind: el.dataset.kind, id: el.dataset.id || el.dataset.vid || '' };
     render(); return;
@@ -8564,7 +9005,7 @@ document.addEventListener('click', async (ev) => {
   // ⚠️ **三个都不直接改账本**：`pickKit` / `pickAdv` 是**页面上的草稿**，
   //    只有「就这样」那一步才发请求（`/api/desire/pick` → `Session.choice`）。
   //    ⇒ 玩家可以来回点、反悔，而**服务端那边只在点了「就这样」时才知道**。
-  // ⚠️ 2026-10-06 用户裁定（问题 5）：序幕那一句 → 四宣言那一步。
+  // ⚠️ 2026-10-06 用户裁定（问题 5）：序幕那一句 → 宣言那一步。
   //   ⚠️ 只切**本地阶段**，**不发请求** —— 真正的提交仍在 `pickCommit`（服务端那份 `Session.choice`
   //   是唯一事实源，玩家来回点不该每次都让后端知道）。
   if (act === 'pickOpen') { pickStage = 'kit'; render(); return; }
@@ -8581,7 +9022,7 @@ document.addEventListener('click', async (ev) => {
     // 换一条欲望 ⇒ **优势项清空**：它们是"为这一句准备的手段"，换句就该重挑。
     // ⚠️ 判据在服务端（越界会拒），这里只防"换了欲望还留着上一句的手段"这种明显不对。
     pickAdv = {};
-    // ⚠️ 2026-10-06（问题 6/7）：四宣言那一步**选完就去属性那一步** ——
+    // ⚠️ 2026-10-06（问题 6/7）：宣言那一步**选完就去属性那一步** ——
     //   用户原话：「点完后让玩家在4个宣言中选择一个」「玩家再点完后，才进入属性加点的弹窗」。
     //   ⇒ 选完**立即进** `'adv'`（不许停在原地，那会让人以为没反应）。
     pickStage = 'adv';
@@ -8622,12 +9063,20 @@ document.addEventListener('click', async (ev) => {
       popupResults = [];
     }
     await api('/api/nextday', {}, '正在铺开第 1 天…');
+    // ⚠️⚠️ 2026-10-08（用户第 3 条）：觉醒流程走完 ⇒ 待办一次「欲望面板自动弹出 ＋ 左侧引导」。
+    //    放在**最后一个 api 之后**：中间那些响应自带的 render 都不消费（此刻标志还没置），
+    //    只有下面这次显式 render 接住它 —— 直通链上"弹"的时机恰好是"落在第 1 天"那一刻。
+    desireIntroPending = true;
     render();
     return;
   }
   if (act === 'dial') { await api('/api/dial', { n: Number(el.dataset.n) }, '正在拨动时间…'); return; }
   // 翻日 ⇒ 画布整片换掉，上一张事件浮层必然失效 ⇒ 先收掉再发请求。
-  if (act === 'nextday') { detailOpen = null; await api('/api/nextday', {}, '正在铺开新的一天…'); return; }
+  if (act === 'nextday') { discardDeskPicks(); detailOpen = null; await api('/api/nextday', {}, '正在铺开新的一天…'); return; }
+  // ⚠️⚠️ 2026-10-08（用户裁定）：序幕提示旁那颗「直接正式开始游戏」——
+  //   掐掉还没读的序幕事件、直接铺出末条「原初欲望的觉醒」（服务端 `skipToOpening`）。
+  //   之后玩家点那张卡，觉醒流程与自然走完时**一字不差**。
+  if (act === 'skipPrologue') { await api('/api/prologue/skip', {}, '正在翻开「原初欲望的觉醒」…'); return; }
   // ⚠️ 2026-10-07：固定功能事件的「确定」—— 人槽 ＋ 金币槽都就位才能按。
   //    拖放只是意向，这里才是事实：成功才清页面态（服务端拒绝就留着让他改），
   //    并收掉功能单。⚠️ 2026-10-07 用户裁定（第十五批）：恢复**延迟生效** ——
@@ -8819,7 +9268,7 @@ document.addEventListener('click', async (ev) => {
 //    档 A 是强制的、确认框牵涉删档、自建面板里可能正写着字。
 document.addEventListener('click', (ev) => {
   if (!detailOpen) return;
-  if (ev.target && ev.target.id === 'overlay') { detailOpen = null; render(); }
+  if (ev.target && ev.target.id === 'overlay') { discardDeskPicks(); detailOpen = null; render(); }
 });
 
 document.addEventListener('change', (ev) => {

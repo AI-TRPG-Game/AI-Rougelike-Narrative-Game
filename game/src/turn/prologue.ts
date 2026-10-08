@@ -1,26 +1,25 @@
 // 序幕（前 2 天 · 10 条档 A）—— **写入侧**
 //
-// 这个文件做四件事：
-//   ① `startPrologue` —— 开局铺下序幕的**第一条**（`e1`）；`e1`~`e10` 这十个号在
+// 这个文件做五件事：
+//   ① `startPrologue` —— 开局把序幕**除末条外一次全铺**（`e1`…`e4`、`e6`…`e9`）；`e1`~`e10` 这十个号在
 //      `initialLedger()` 里就已经订走了（见 `ledger/ids.ts·initialWatermark`）；
-//   ② `advancePrologue` —— 点完一条之后铺下**下一条**（`e2` … `e10`）；
-//   ③ `afterPrologueCard` —— **唯一的编排入口**：点完一条之后该干什么（末条 ⇒ 翻牌；其余 ⇒ 铺下一条）；
+//   ② `advancePrologue` —— 点完一条之后看一眼：其余事件**全都处理完了**才铺末条「原初欲望的觉醒」；
+//   ②′ `skipToOpening` —— 玩家点「直接正式开始游戏」：掐掉还没读的那些，直接铺末条；
+//   ③ `afterPrologueCard` —— **唯一的编排入口**：点完一条之后该干什么（末条 ⇒ 翻牌；其余 ⇒ `advancePrologue`）；
 //   ④ `driveOpening` / `prologueRng` —— 末条「原初欲望的觉醒」的实质内容（翻两张塔罗 → `opening`）。
 //
 // ⚠️ **它是"写账"不是"判定"**：这里**不判结局、不推进时钟**；档 A 的结算全在
 //    `turn/popup.ts·choosePopup`（那里零 LLM、零掷骰）。"点下末条之后要翻牌、要进第 1 天"
 //    由调用侧（`ui/session.ts` / `turn/simulate.ts`）编排 —— 与"写账 / 判定分家"同一条纪律。
 //
-// ── ⚠️⚠️ **一次只铺一条**（2026-09-19 序幕落地时定的，这是一个**刻意的结构选择**）──
-// 《设定.md》§三：「档 A 恒为强制弹窗 ⇒ 序幕天然就是**逐条弹出、走完一条再走下一条**的强制顺序。」
-// 但闸门 ④ 只保证"档 A 没清完就不让干别的"，它**不保证 10 条之间的先后** ——
-// 10 条同时躺在 `live` 里，玩家完全可以先点第 7 条。文档那句"天然顺序"其实**不成立**。
-// ⇒ 与其加一个"顺序锁"（新规则、新断言、新失败模式），不如让**牌池里就只有一张**：
-//    `advancePrologue` 在点完之后才铺下一条 ⇒ 顺序是**结构性**的，不靠任何人守。
-//    （顺带：UI 的弹窗遮罩一次只显示一条，"逐条弹出"这层手感也才有地方落。）
+// ── ⚠️⚠️ **平铺 ＋ 末条条件出现**（2026-10-08 用户裁定，取代原先的"一次只铺一条"）──
+// 用户原话：序幕事件要**平铺在地图上、没有强制的点击顺序**；末条「原初欲望的觉醒」是特殊的，
+// **其余事件点完后、或玩家点「直接正式开始游戏」按钮后**才出现（按钮随之消失），其后逻辑不变。
+//    ⇒ 除末条外开局一次全铺（`startPrologue`），点选顺序完全自由（`choosePopup` 本就不走闸门）；
+//    ⇒ 末条只在两条路上出现：其余全部结算（`advancePrologue` ①步步看）/ 按钮直通（`skipToOpening`）。
 //
-// ⚠️ **序幕的强制顺序不靠这里保证，靠闸门 ④**：只要还有一条是「待处理」，
-//    闸门 ④ 就拦下**其它排布**与**「进下一天」**。
+// ⚠️ **"序幕没走完就不许干别的"不靠这里保证，靠闸门 ④**：只要还有一条是「待处理」，
+//    闸门 ④ 就拦下**其它排布**与**「进下一天」**（条与条之间的先后**不再**约束 —— 2026-10-08）。
 //    （闸门 ④ 对 `advanceDay` 的拦截此前**只存在于单测里**：`nextDay` 从不问闸门。
 //      序幕落地时在 `ui/session.ts·nextDay` 补了当天入口的拦截，见那里。）
 //
@@ -113,9 +112,11 @@ function cardToEvent(l: Ledger, c: PrologueCardSpec, log: string[]): GameEvent {
 }
 
 /**
- * 铺下序幕的**第一条** —— **开局的第一个动作**（`day 0 / 序幕`）。
+ * 铺开序幕 —— **开局的第一个动作**（`day 0 / 序幕`）。
  *
- * ⚠️ **只铺 `e1`**（理由见顶栏「一次只铺一条」）：后面其余 8 条由 `advancePrologue` 接力。
+ * ⚠️⚠️ **除末条外一次全铺**（2026-10-08 用户裁定「平铺、无强制点击顺序」）：
+ *    末条「原初欲望的觉醒」**不在这里铺** —— 它只在①其余事件全部结算（`advancePrologue`）
+ *    或②玩家点「直接正式开始游戏」（`skipToOpening`）之后出现。
  * ⚠️ **幂等**：牌池里已经能找到任意一条序幕 id（说明序幕已经开始过了）就**原样返回**，
  *    只记一行日志。开一篇新局是 `initialLedger()` 的事，不是"再铺一遍"。
  *    ⚠️ 幂等判据是"有没有序幕 id"，**不是**"第 1 条是否还在待处理" ——
@@ -134,13 +135,14 @@ export function startPrologue(ledger: Ledger): { ledger: Ledger; log: string[] }
     return { ledger: l, log };
   }
 
-  const first = prologueCardOf(1);
-  if (!first) {
+  // ⚠️ **除末条（`opening: true`）外全铺**：末条条件出现，见顶栏「平铺 ＋ 末条条件出现」。
+  const laid = PROLOGUE_CARDS.filter((c) => c.opening !== true);
+  if (laid.length === 0) {
     // 结构性错误：序列表空了。**不静默** —— 没有序幕的一局等于"六维全 5 + 命题为空"的残局。
     log.push('⚠️ 序幕事件表是空的（结构性错误）⇒ 没有铺任何东西，直接进正文');
     return { ledger: l, log };
   }
-  l.events.live.push(cardToEvent(l, first, log));
+  for (const c of laid) l.events.live.push(cardToEvent(l, c, log));
   // ⚠️ `Math.max` 而不是直接赋值：水位**只许涨**（顺位纪律）。
   //    ⚠️ 用 **`PROLOGUE_MAX_SEQ`（10）** 而不是条数（9）：各条保留原号，
   //    `e5` 是空号，正文第一条生成事件恒从 `e11` 起（2026-10-07 删卡不改号）。
@@ -149,37 +151,80 @@ export function startPrologue(ledger: Ledger): { ledger: Ledger; log: string[] }
   const d1 = PROLOGUE_CARDS.filter((c) => c.day === 1).length;
   log.push(
     `序幕开始（显示「Day 0」· 共 ${PROLOGUE_TOTAL} 条档 A：第 1 天 ${d1} 条 / 第 2 天 ${PROLOGUE_TOTAL - d1} 条）—— ` +
-      '全档 A、0 行动点、0 调用；末条「原初欲望的觉醒」触发 `opening`',
+      '全档 A、0 行动点、0 调用；除末条外**一次全铺、自由点选**，末条「原初欲望的觉醒」条件出现后触发 `opening`',
   );
   log.push(
     `事件顺位：${formatEventId(1)} ~ ${formatEventId(PROLOGUE_MAX_SEQ)}（正文第一条生成事件从 ${formatEventId(PROLOGUE_MAX_SEQ + 1)} 起）` +
-      `　·　**一次只呈现一条**，点掉它才铺下一条`,
+      `　·　末条在其余事件处理完（或点「直接正式开始游戏」）后出现`,
   );
   return { ledger: l, log };
 }
 
 /**
- * 点完一条之后**铺下一条**（`e2` … `e10`）。
+ * 点完一条序幕事件之后看一眼（原「铺下一条」，2026-10-08 改判）：
+ *   ① **补齐**：live 里缺的非末条序幕卡一次补齐 —— 这是给**旧档的迁移**（旧模型"一次只铺
+ *      一条"，读回来的档只铺过前几条 ⇒ 补齐后旧档玩家也进新模型的"平铺"体验）；
+ *   ② **末条**：其余序幕事件全都铺出、且没有一条还「待处理」⇒ 铺「原初欲望的觉醒」。
  *
- * ⚠️ 幂等：牌池里已有下一条（或已铺完）⇒ 原样返回、零日志。
- *    调用侧可以放心地"点一次、推一次"，不必自己数。
- * ⚠️ 判据取**已铺出的最大序号**而不是"待处理条数"：被点掉的那些仍留在 `live` 里
- *    （`status = 已结算`），拿"待处理"去推会永远推出同一条。
- * ⚠️ **下一条 = 表里 seq 比它大的第一条**（不是 `maxSeq + 1`）：2026-10-07 删掉原第 5 条
- *    「两样东西」后 seq 中间空一个 5，按"加一"找会找不到卡、序幕永远停在第 4 条。
+ * ⚠️ 幂等：没事可做 ⇒ 原样返回、零日志、**同一个账本对象**。
+ *    调用侧可以放心地"点一次、看一次"，不必自己数。
+ * ⚠️ 判据是**逐条看状态**而不是"最大序号 + 1"：2026-10-07 删掉原第 5 条后 seq 中间空 5，
+ *    按"加一"找会找不到卡；且新模型下铺出的先后不再等于点掉的先后。
  *    也不在这里翻牌 —— 翻牌是 `afterPrologueCard` 的事。
  */
 export function advancePrologue(ledger: Ledger): { ledger: Ledger; log: string[] } {
   const log: string[] = [];
   const seqs = ledger.events.live.map((e) => prologueSeqOf(e.id)).filter((n): n is number => n !== null);
   if (seqs.length === 0) return { ledger, log }; // 序幕还没开始 ⇒ 不在这里替它开始
-  const maxSeq = Math.max(...seqs);
-  const next = PROLOGUE_CARDS.find((c) => c.seq > maxSeq) ?? null;
-  if (!next) return { ledger, log }; // 全部铺出来了
-  // ⚠️ **克隆放在最后**：本函数会被每一次档 A 点选调用（正文的档 A 也算），
-  //    而这些调用**全都该是零开销的空转** ⇒ 先判、后克隆，不白克隆一个账本。
+  // ⚠️ **克隆放在判后**：本函数会被每一次档 A 点选调用（正文的档 A 也算），
+  //    而这些调用**大多该是零开销的空转** ⇒ 先判、后克隆，不白克隆一个账本。
+  const missing = PROLOGUE_CARDS.filter((c) => c.opening !== true && !seqs.includes(c.seq));
+  const openingLaid = ledger.events.live.some((e) => e.id === PROLOGUE_OPENING_ID);
+  const restPending = ledger.events.live.some((e) => {
+    const s = prologueSeqOf(e.id);
+    return e.status === '待处理' && s !== null && s !== PROLOGUE_MAX_SEQ;
+  });
+  if (missing.length === 0 && (openingLaid || restPending)) return { ledger, log }; // 没事可做
   const l: Ledger = structuredClone(ledger);
-  l.events.live.push(cardToEvent(l, next, log));
+  for (const c of missing) l.events.live.push(cardToEvent(l, c, log));
+  if (!openingLaid && !restPending && missing.length === 0) {
+    const oc = prologueCardOf(PROLOGUE_MAX_SEQ);
+    if (oc) {
+      l.events.live.push(cardToEvent(l, oc, log));
+      log.push('序幕的其余事件都处理完了 ⇒「原初欲望的觉醒」出现了');
+    }
+  }
+  return { ledger: l, log };
+}
+
+/**
+ * **「直接正式开始游戏」**（UI 那颗按钮的后端，2026-10-08 用户裁定）：
+ * 掐掉**还没读**的序幕事件（非末条 · 待处理），然后铺末条「原初欲望的觉醒」。
+ *
+ * ⚠️ 为什么要**掐掉**而不是留着：留着的全是 day 0 的档 A「待处理」⇒ 闸门 ④ 会把
+ *    正文里的排布与「进下一天」永远拦下去；它们又不再有入口收尾（序幕界面已经翻篇）。
+ *    已结算的那些**保留**（它们是这一局的开局记忆，`prologueFinished` 也靠它们成立）。
+ * ⚠️ 幂等：不是序幕（一条序幕 id 都没有）⇒ 原样返回；末条已在 ⇒ 只掐不铺。
+ */
+export function skipToOpening(ledger: Ledger): { ledger: Ledger; log: string[] } {
+  const log: string[] = [];
+  const seqs = ledger.events.live.map((e) => prologueSeqOf(e.id)).filter((n): n is number => n !== null);
+  if (seqs.length === 0) return { ledger, log }; // 不是序幕 ⇒ 一个字不动
+  const l: Ledger = structuredClone(ledger);
+  const before = l.events.live.length;
+  l.events.live = l.events.live.filter((e) => {
+    const s = prologueSeqOf(e.id);
+    return s === null || s === PROLOGUE_MAX_SEQ || e.status !== '待处理';
+  });
+  const skipped = before - l.events.live.length;
+  if (skipped > 0) log.push(`「直接正式开始游戏」：跳过 ${skipped} 条还没读的序幕事件`);
+  if (!l.events.live.some((e) => e.id === PROLOGUE_OPENING_ID)) {
+    const oc = prologueCardOf(PROLOGUE_MAX_SEQ);
+    if (oc) {
+      l.events.live.push(cardToEvent(l, oc, log));
+      log.push('「原初欲望的觉醒」出现了 —— 点下它，选定你的欲望，这 28 天正式开始');
+    }
+  }
   return { ledger: l, log };
 }
 
@@ -257,7 +302,8 @@ export function driveOpening(
 }
 
 /**
- * 点完一条序幕事件之后的唯一编排入口 —— 末条 ⇒ 开局；其余 ⇒ 铺下一条。
+ * 点完一条序幕事件之后的唯一编排入口 —— 末条 ⇒ 开局；其余 ⇒ `advancePrologue`
+ * （2026-10-08 起＝看一眼要不要铺末条 / 迁移补齐，不再"铺下一条"）。
  *
  * ⚠️ 为什么要有它：`Session` 与 `simulate` 两处都要做"点完一条之后的下一件事"，
  *    两处各写一遍 `if (末条) 开局 else 铺下一条` ⇒ 迟早漂移（本项目反复踩过的坑：

@@ -408,6 +408,12 @@ async function route(pathname: string, body: Record<string, unknown>): Promise<A
     case '/api/popup':
       return await withSession((s) => s.clickPopup(str(body, 'eventId'), num(body, 'optionIndex', 0)));
 
+    // ⚠️⚠️ 2026-10-08（用户裁定）：序幕地图顶上那颗「直接正式开始游戏」——
+    //    跳过还没读的序幕事件，翻开末条「原初欲望的觉醒」（按钮随之消失）。
+    //    判据全在 `turn/prologue.ts·skipToOpening`；**同步、零 LLM**（不写成 async）。
+    case '/api/prologue/skip':
+      return withSession((s) => s.skipPrologueRest());
+
     // ⚠️ **2026-10-05 用户裁定：欲望与六维都改成玩家自己选** ⇒ 新增这一个入口。
     //    它是**纯会话态**的一次动作（`Session.pickDesire` 零 LLM、零落账）——
     //    真正的落账在玩家点序幕末条那一刻（`clickPopup` → `afterPrologueCard` → `driveOpening`）。
@@ -438,10 +444,13 @@ async function route(pathname: string, body: Record<string, unknown>): Promise<A
     // ⚠️ 2026-10-06：**装填通路**（用户裁定「能拖过去就能拖回来」）。
     //    判据在 `rules/gates.ts` 闸门 ⑤（`CARRY_CAP` ＋ 持有者唯一），
     //    但此前 `loadItems` 在整个 `ui/` 零引用 —— 这条路由就是那个「生产路径」。
-    //    ⚠️ `to` 缺省是**收回自己**（玩家）：拖回自己那张卡 = 取回。
+    //    ⚠️ `to` 缺省是**装备到玩家身上**（玩家）：拖到他自己那张卡 ＝ 装备。
+    //    ⚠️⚠️ 2026-10-08（无人携带）：`to: ''` ＝ **摘下回手牌区** —— `str` 的
+    //      第三参只在"不是字符串"时才用缺省，空串会原样通过（不能用 `|| PLAYER_ID`，
+      //      那会把"摘下"吞成"装备到玩家身上"）。
     case '/api/give':
       return await withSession((s) =>
-        s.give(str(body, 'to') || PLAYER_ID, ids(body, 'items')));
+        s.give(str(body, 'to', PLAYER_ID), ids(body, 'items')));
 
     // ⚠️ 2026-10-07：**槽位排序**（人物详情页四个物品卡槽拖动换位）。
     //    `effectiveItems` 已改纯槽位顺序 ⇒ 左右顺序 = 生效优先级 = 账本字段，

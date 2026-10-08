@@ -208,7 +208,10 @@ export const suites: Suite[] = [
         );
       });
 
-      t.test('★ 轮数用尽 ⇒ 规则层**强制收尾**（不指望模型看到"上限 7"就自己收）', async () => {
+      // ⚠️⚠️ 2026-10-08 用户裁定：轮数用尽**不再自动跳结算**（原话「后者只能在玩家手动点击了
+      //    结束对话按键后才能触发，轮数用尽仅仅只会禁止玩家继续在对话框输入文本」）。
+      //    ⇒ 这一条重写为：末轮回应照常返回（不被吞）、场景留在原地、超限被拒、手动收尾照发。
+      t.test('★ 轮数用尽 ⇒ **不自动收尾**：末轮回应不吞、场景仍在，收尾只能玩家手动触发', async () => {
         let l = openScene(sceneLedger(1), { eventId: 'e1' }).ledger;
         const b = sceneBrain({ sceneOverAt: null }); // 永不自行收束
         let last = await sceneStep(l, '第 1 句', makeRng(9), b);
@@ -218,11 +221,24 @@ export const suites: Suite[] = [
           l = last.ledger;
         }
         t.eq(last.round, SCENE_ROUND_CAP, `上限就是 ${SCENE_ROUND_CAP} 轮`);
-        t.eq(last.ended, '轮数用尽');
-        t.eq(last.close?.calls, 1, '末轮没收 ⇒ 该发的那次收尾调用必须发');
-        t.eq(b.calls.filter((c) => c === '收尾:轮数用尽').length, 1);
+        t.eq(last.ended, null, '★ 轮尽不自动跳结算 —— 场景还在，等玩家点「结束对话」');
+        t.ok(last.narration.trim().length > 0, '★ 末轮的回应必须照常返回（不能被吞）');
+        t.ok(last.ledger.scene !== null, '场景状态保留 —— 收尾只能手动触发');
+        t.eq(b.calls.filter((c) => c.startsWith('收尾:')).length, 0, '一次收尾都没发过');
         t.eq(b.calls.filter((c) => c.startsWith('叙事:')).length, SCENE_ROUND_CAP, `每轮恰好一次，共 ${SCENE_ROUND_CAP} 次`);
-        t.eq(last.ledger.scene, null);
+        // 超限的那次被规则层拒（前端禁输入之外的第二道闸）
+        let threw = '';
+        try {
+          await sceneStep(l, '还想多说一句', makeRng(9), b);
+        } catch (e) {
+          threw = e instanceof Error ? e.message : String(e);
+        }
+        t.ok(threw.includes('轮次上限'), '超限的那次必须被抛掉（不许再进一轮）');
+        // 玩家点「结束对话」⇒ 手动收尾照发（reason = 玩家主动退出）
+        const r = await sceneLeave(l, makeRng(9), b);
+        t.eq(r.reason, '玩家主动退出', '轮尽后的手动收尾按"主动退出"落');
+        t.eq(r.calls, 1, '手动收尾要发那一次收尾调用');
+        t.eq(r.ledger.scene, null);
       });
 
       t.test('★ 玩家主动退出：仍要走**一次收尾**（这一场的 delta 已经逐轮落过账了）', async () => {

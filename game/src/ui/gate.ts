@@ -48,9 +48,12 @@ const LABELS: Record<string, string> = {
   '/api/items/order': '调整携带顺序',
   '/api/dial': '拨时针',
   '/api/nextday': '进下一天',
+  // ⚠️ 2026-10-08 新增：序幕「直接正式开始游戏」（掐掉未读的、铺出末条「原初欲望的觉醒」）。
+  '/api/prologue/skip': '直接正式开始游戏',
   '/api/scene/open': '进场景',
   '/api/scene/say': '场景里说话',
-  '/api/scene/leave': '退出场景',
+  // ⚠️ 2026-10-08：按钮文案改为「结束对话（收尾结算）」—— 操作名跟着改（同一件事）。
+  '/api/scene/leave': '结束对话',
   '/api/restore': '医馆 / 大神殿',
   '/api/finish': '放格子',
   '/api/giveup': '直接结算',

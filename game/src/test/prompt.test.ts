@@ -929,13 +929,13 @@ export const suites: Suite[] = [
         t.eq(INSTRUCTIONS['结局'], INSTRUCTION_ENDING);
       });
 
-      t.test('★【此刻是】的轮次上限取自 `SCENE_ROUND_CAP` —— 不写死 7（状态机截断读同一份）', () => {
-        t.eq(SCENE_ROUND_CAP, 7, '《规则.md》§二 路径⑤ 定的上限');
+      t.test('★【此刻是】的轮次上限取自 `SCENE_ROUND_CAP` —— 不写死数字（状态机截断读同一份）', () => {
+        t.eq(SCENE_ROUND_CAP, 10, '2026-10-08 用户裁定：实测 7 轮太少，改 10');
         const { ev } = fixture();
         t.ok(sceneNowBlock(ev, 3).includes(`第 3 轮（上限 ${SCENE_ROUND_CAP}）`), '上限必须来自常量，不许字面量');
 
-        // ⚠️ 上面两条**合起来才**构成防线：单看"渲染值 == 常量值"是抓不到字面量 7 的
-        //    （两边都是 7 时照样绿）。所以再加一条**读源码**的守卫 —— 这是唯一能证明
+        // ⚠️ 上面两条**合起来才**构成防线：单看"渲染值 == 常量值"是抓不到字面量的
+        //    （两边写同一个数时照样绿）。所以再加一条**读源码**的守卫 —— 这是唯一能证明
         //    "没有第二份数字"的办法（与《规则.md》那条"两处各写一个数"的纪律对应）。
         const src = fs.readFileSync(path.join(import.meta.dirname, '..', 'prompt', 'blocks.ts'), 'utf8');
         t.ok(!/上限\s*\d/.test(src), 'blocks.ts 里出现写死的轮次上限 —— 必须走 SCENE_ROUND_CAP');

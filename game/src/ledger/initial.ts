@@ -360,8 +360,12 @@ export function initialLedger(): Ledger {
       //    按玩家点亮的优势属性算（2026-10-05 起玩家自己挑，不再抽塔罗）。
       //    ⇒ 无头驱动与 UI 都由 `turn/prologue.ts·driveOpening` **真的落一次账**。
       attrs: attrsOf([5, 5, 5, 5, 5, 5]),
-      // 「两样东西」由规则层直发（物品得失是重型变化，不进档 A 的 `Delta`）⇒ 开局就在手上
-      items: [dagger, travelogue],
+      // 「两样东西」由规则层直发（物品得失是重型变化，不进档 A 的 `Delta`）。
+      // ⚠️⚠️ 2026-10-08（用户裁定·**无人携带**）：开局物品**不装备给任何人** ——
+      //    包括玩家自己这张卡（艾德里安）。它们躺在手牌区（`holder=null`），
+      //    玩家想给谁带，从手牌区拖到谁身上；此前默认挂在玩家名下，
+      //    玩家把它们从自己卡上拖回手牌区会被"已经在你手上了"顶回来（实测翻车）。
+      items: [],
     }),
     ...PRESET_PEOPLE.map((p, i) =>
       makePerson({
@@ -398,7 +402,8 @@ export function initialLedger(): Ledger {
       desc: '一柄柄上缠了旧布的短匕首，王室子弟的日常佩物',
       // 「有数值 · 争斗 +1」⇒ 档值 1 ⇒ 品级派生为「粗制」（品级不进 schema）
       attr_bonus: [{ attr: '争斗', bonus: 1 }],
-      holder: PLAYER_ID,
+      // ⚠️ 2026-10-08（用户裁定·无人携带）：默认不装备给任何人（含玩家自己那张卡）
+      holder: null,
       consumed: false,
     },
     {
@@ -409,7 +414,7 @@ export function initialLedger(): Ledger {
       name: '旧游记',
       desc: '一本边角翻得起毛的旧游记，讲海外诸邦风物',
       attr_bonus: [],
-      holder: PLAYER_ID,
+      holder: null,   // ⚠️ 2026-10-08（用户裁定·无人携带）：同上
       consumed: false,
     },
   ];

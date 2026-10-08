@@ -6,9 +6,9 @@
 //    混在一起写，报错信息就指不回判据了。
 //
 // 三条最要紧的断言（都是"绿了但没测到"的高危区）：
-//   ① **一次只铺一条**：`startPrologue` 之后牌池里**恰好 1 条**。
-//      这条一旦退化成"10 条一起铺"，顺序就没人守了 —— 而**所有既有断言照样是绿的**
-//      （闸门 ④ 只保证"清完才能干别的"，不保证 10 条之间的先后）。
+//   ① **一次全铺（除末条）**：`startPrologue` 之后牌池里**恰好 8 条**（平铺 · 自由点选，
+//      2026-10-08 用户裁定）。末条「原初欲望的觉醒」**不许混进来** —— 其余事件全结算 /
+//      点「直接正式开始游戏」之后才出现。这条一旦退化，"末条条件出现"就没人守了。
 //   ② **闸门 ④ 真的拦住了「进下一天」**：序幕读到一半按「进下一天」必须被拒。
 //      这条判据在 `rules/gates.ts` 里**本来就写着 `advanceDay`**，但直到本次落地之前
 //      **没有任何调用侧问过它** —— 那个分支只活在单测里（`ledger.test.ts:43`）。
@@ -49,6 +49,7 @@ import {
   prologueFinished,
   prologuePending,
   prologueRng,
+  skipToOpening,
   startPrologue,
 } from '../turn/prologue.ts';
 import { Session } from '../ui/session.ts';
@@ -156,7 +157,7 @@ const 内容表: Suite = {
       //  —— 所以这里必须正面断言"解析得到"，而不是"没记警告"）
       const ten = advancePrologue(l).ledger;
       const pushed = ten.events.live.filter((e) => isPrologueEventId(e.id));
-      t.eq(pushed.length, 2, '前提：此刻铺出来 2 条');
+      t.eq(pushed.length, 8, '前提：开局一次铺 8 条（除末条）');
       for (const e of pushed) {
         t.ok(e.location !== null, `${e.id}「${e.title}」的地点没解析到 ⇒ 玩家会看见一个没有舞台的事件`);
         t.ok(ten.entities.places.some((p) => p.id === e.location), `${e.id} 的 location 必须在账本里`);
@@ -182,10 +183,13 @@ const 内容表: Suite = {
 const 写入侧: Suite = {
   name: 'P4-D · 序幕写入侧（turn/prologue.ts）',
   register(t: T) {
-    t.test('★ `startPrologue` 一次只铺 1 条（`e1`），水位一次上到 10', () => {
+    t.test('★ `startPrologue` 除末条外一次全铺（8 条），末条不铺；水位一次上到 10', () => {
       const r = startPrologue(initialLedger());
-      t.eq(popupCards(r.ledger).length, 1, '★ 只铺 `e1` —— 10 条一起铺就没有顺序可言了');
-      t.eq(popupCards(r.ledger)[0].id, 'e1', '铺的是第一章第一条');
+      const laid = popupCards(r.ledger);
+      t.eq(laid.length, 8, '★ 除末条外全铺（平铺 · 自由点选，2026-10-08 用户裁定）');
+      t.deep(laid.map((e) => e.id), ['e1', 'e2', 'e3', 'e4', 'e6', 'e7', 'e8', 'e9'], '铺的顺序即表序（`e5` 是空号）');
+      t.ok(!laid.some((e) => e.id === 'e10'), '★ 末条「原初欲望的觉醒」不铺 —— 其余事件点完 / 按钮直通后才出现');
+      t.ok(laid.every((e) => e.status === '待处理'), '铺下即待处理（8 条都在等玩家点）');
       t.eq(r.ledger.idWatermark.event, 10, '★ `e1`~`e10` 是开局订走的（`initialLedger`）⇒ 正文第一条生成事件从 `e11` 起');
       t.eq(formatEventId(r.ledger.idWatermark.event + 1), 'e11', '★ 正文第一条生成事件的号是 `e11`，不是 `e1`');
       t.eq(
@@ -197,27 +201,49 @@ const 写入侧: Suite = {
       t.eq(r.ledger.clock.day, 0, '序幕不推进时钟');
     });
 
-    t.test('`startPrologue` 幂等：连调两次仍是 1 条（判据是"有没有序幕 id"，不是"第 1 条还在不在"）', () => {
+    t.test('`startPrologue` 幂等：连调两次仍是那 8 条（判据是"有没有序幕 id"，不是"第 1 条还在不在"）', () => {
       const a = startPrologue(initialLedger()).ledger;
       const b = startPrologue(a).ledger;
-      t.eq(popupCards(b).length, 1, '★ 第二次调用不许又铺一条 `e1`');
+      t.eq(popupCards(b).length, 8, '★ 第二次调用一条都不许多');
       t.ok(b.events.live.filter((e) => e.id === 'e1').length === 1, '`e1` 只有一条（重复会让玩家读两遍朝会）');
       // 点掉之后**再**调一次 —— 这才是真正会暴露"判据取错"的那一次
       const c = startPrologue(choosePopup(b, 'e1', 0).ledger).ledger;
-      t.eq(popupCards(c).length, 1, '★ `e1` 已结算、牌池里没有"待处理"的了 —— 但序幕**已经开始了**，不许重来');
+      t.eq(popupCards(c).length, 8, '★ `e1` 已结算 —— 但序幕**已经开始了**，不许重来');
       t.eq(c.events.live.filter((e) => e.id === 'e1').length, 1, '不允许出现第二条 `e1`');
     });
 
-    t.test('★ `advancePrologue` 按表序依次铺 `e2`…`e10`（跳过已删的 `e5`）；铺满之后不再铺', () => {
+    t.test('★ `advancePrologue`：全铺过 ⇒ 空转（同一引用）；非末条全结算 ⇒ 铺末条；末条已铺 ⇒ 再空转', () => {
       let l = startPrologue(initialLedger()).ledger;
-      const order = PROLOGUE_CARDS.map((c) => prologueEventId(c.seq)).filter((id) => id !== 'e1');
-      for (let i = 0; i < order.length; i++) {
+      // ① 已全铺、还有没点的 ⇒ 空转（不再"铺下一条"）
+      const noop = advancePrologue(l);
+      t.eq(noop.ledger, l, '★ 空转时返回**同一个账本对象**（引用相等 ⇒ 没克隆 ⇒ 没动过）');
+      // ② 逐条点掉非末条 —— 中途每一步都空转；点完最后一条 ⇒ 末条出现
+      const rest = PROLOGUE_CARDS.filter((c) => c.opening !== true).map((c) => prologueEventId(c.seq));
+      for (let i = 0; i < rest.length; i++) {
+        l = choosePopup(l, rest[i], 0).ledger;
         l = advancePrologue(l).ledger;
-        t.eq(popupCards(l).length, i + 2, `第 ${i + 1} 次推进之后应当有 ${i + 2} 条（最新是 ${order[i]}）`);
+        const isLast = i === rest.length - 1;
+        t.eq(popupCards(l).length, isLast ? 9 : 8,
+          `点掉第 ${i + 1} 条后 live 里 ${isLast ? '9 条（末条出现了）' : '仍 8 条（末条不出现）'}`);
+        if (!isLast) t.eq(advancePrologue(l).ledger, l, `点掉第 ${i + 1} 条后：仍空转（同一引用）`);
       }
+      // ③ 末条铺出 ⇒ 再推进也空转
       const again = advancePrologue(l);
-      t.eq(popupCards(again.ledger).length, 9, '★ 铺满 9 条之后不许再多铺（否则玩家会读到多出来的一条）');
-      t.eq(again.ledger, l, '★ 空转时返回**同一个账本对象**（引用相等 ⇒ 没克隆 ⇒ 没动过）');
+      t.eq(again.ledger, l, '★ 末条已铺 ⇒ 空转（同一个账本对象）');
+      t.ok(popupCards(l).some((e) => e.id === 'e10' && e.status === '待处理'), '末条「原初欲望的觉醒」待处理');
+      t.ok(popupCards(l).filter((e) => e.id !== 'e10').every((e) => e.status === '已结算'), '其余 8 条全已结算');
+    });
+
+    t.test('★ `advancePrologue` 旧档迁移：只铺过前几条的旧账本 ⇒ 一次补齐缺失的非末条', () => {
+      // 手造"旧模型"账本：那个时代一次只铺一条 —— 读回来的档只有 e1
+      const l0 = startPrologue(initialLedger()).ledger;
+      const old = structuredClone(l0);
+      old.events.live = old.events.live.filter((e) => e.id === 'e1');
+      const r = advancePrologue(old);
+      const laid = popupCards(r.ledger);
+      t.eq(laid.length, 8, '★ 一次补齐缺失的 7 条非末条（旧档玩家也进"平铺"体验）');
+      t.deep(laid.map((e) => e.id).sort(), ['e1', 'e2', 'e3', 'e4', 'e6', 'e7', 'e8', 'e9'], '补齐的口径与新开一局一致');
+      t.ok(!laid.some((e) => e.id === 'e10'), '补齐不许把末条也带出来');
     });
 
     t.test('`advancePrologue` 在非序幕账本上零副作用（返回同一引用）', () => {
@@ -276,15 +302,40 @@ const 写入侧: Suite = {
       t.eq(prologueFinished(l), false, '第 10 条还没点 ⇒ 序幕没走完');
     });
 
-    t.test('`prologuePending` / `currentPrologueCard`：读数与"当前该读的那一条"始终一致', () => {
+    t.test('`prologuePending` / `currentPrologueCard`：8 条铺开 ⇒ 剩余数递减；"当前"恒指 live 里最靠前的待处理', () => {
       let l = startPrologue(initialLedger()).ledger;
-      t.eq(prologuePending(l), 1, '一次只有一条待处理');
-      t.eq(currentPrologueCard(l)!.seq, 1, '当前是第 1 条');
+      t.eq(prologuePending(l), 8, '开局一次铺 8 条 ⇒ 8 条待处理');
+      t.eq(currentPrologueCard(l)!.seq, 1, '当前（live 里最靠前的待处理）是第 1 条');
       l = advancePrologue(choosePopup(l, 'e1', 0).ledger).ledger;
-      t.eq(prologuePending(l), 1, '点掉一条、铺下一条 ⇒ 恒为 1');
+      t.eq(prologuePending(l), 7, '点掉一条 ⇒ 7 条（不再"铺下一条"）');
       t.eq(currentPrologueCard(l)!.seq, 2, '当前换成了第 2 条');
+      // 自由点选：跳着点 ⇒ "当前"跟着跳，remaining 与之同步
+      l = advancePrologue(choosePopup(l, 'e6', 0).ledger).ledger;
+      t.eq(prologuePending(l), 6, '跳着点掉第 6 条 ⇒ 剩 6');
+      t.eq(currentPrologueCard(l)!.seq, 2, '当前仍是第 2 条（它还待处理）');
       t.eq(currentPrologueCard(l)!.day, 1, '第 2 条还在序幕第 1 天');
       t.eq(prologueCardOf(6)!.day, 2, '第 6 条进序幕第 2 天');
+    });
+
+    t.test('★ `skipToOpening`（「直接正式开始游戏」）：掐掉未读的 · 保留已结算的 · 铺末条；幂等', () => {
+      let l = startPrologue(initialLedger()).ledger;
+      // 先点掉 2 条 —— 它们是这一局的开局记忆，跳过之后必须保留
+      l = choosePopup(l, 'e1', 0).ledger;
+      l = choosePopup(l, 'e2', 0).ledger;
+      const r = skipToOpening(l);
+      const laid = popupCards(r.ledger);
+      t.eq(laid.length, 3, 'live 里 = 2 条已结算 + 末条');
+      t.ok(laid.filter((e) => e.status === '待处理').every((e) => e.id === 'e10'),
+        '★ 待处理的只剩末条（其余 6 条没读的全被掐掉 —— 闸门 ④ 从此放行）');
+      t.ok(laid.some((e) => e.id === 'e1' && e.status === '已结算'), '★ 已结算的保留（`prologueFinished` 靠它们成立）');
+      t.ok(r.log.some((x) => x.includes('跳过 6 条')), `日志要报跳过几条：\n${r.log.join('\n')}`);
+      t.ok(r.log.some((x) => x.includes('原初欲望的觉醒')), '日志要说末条出现了');
+      // 幂等：末条已在 ⇒ 不重复铺
+      const again = skipToOpening(r.ledger);
+      t.eq(again.ledger.events.live.filter((e) => e.id === 'e10').length, 1, '末条不重复铺');
+      // 非序幕账本 ⇒ 一个字不动（同一引用）
+      const bare = initialLedger();
+      t.eq(skipToOpening(bare).ledger, bare, '不是序幕 ⇒ 原样返回（不替它开始）');
     });
   },
 };
@@ -304,11 +355,11 @@ const 编排与翻牌: Suite = {
       const p = prologueRng(1);
       const a = await afterPrologueCard(startPrologue(initialLedger()).ledger, 'e1', fakeBrain(), DEFAULT_CHOICE);
       t.eq(a.opening, false, '`e1` 不是末条');
-      t.eq(popupCards(a.ledger).length, 2, '铺下了 `e2`');
+      t.eq(popupCards(a.ledger).length, 8, '点掉 `e1` 后仍 8 条（全铺过 ⇒ 空转，末条不出现）');
       t.eq(a.ledger.desire.manifesto, '', '还没开局');
 
       const nine = await playTo(initialLedger(), 9);
-      t.eq(popupCards(nine).length, 9, '第 10 条已铺出（序幕共 9 条 ⇒ 点完第 9 次点选后全铺出）');
+      t.eq(popupCards(nine).length, 9, '点完 8 条非末条 ⇒ 末条铺出 ⇒ live 里 9 条（8 已结算 + 1 待处理）');
       const b = await afterPrologueCard(nine, 'e10', fakeBrain(), DEFAULT_CHOICE);
       t.eq(b.opening, true, '★ `e10` 是末条 ⇒ 开局');
       t.ok(b.ledger.desire.manifesto !== '', '★ 宣言落账（玩家挑的那一句）');
@@ -373,13 +424,14 @@ const 编排与翻牌: Suite = {
 const 会话层接线: Suite = {
   name: 'P4-D · 序幕的会话层接线（ui/session.ts）',
   register(t: T) {
-    t.test('★ `Session.start` 默认停在序幕 day 0：恰恰 1 条弹窗 · 视图报 1/10', async () => {
+    t.test('★ `Session.start` 默认停在序幕 day 0：一次铺 8 条 · 视图报 1/9 · 末条未现', async () => {
       const s = await Session.start({ seed: 20260921 });
       const v = s.view();
       t.eq(v.day, 0, '★ 序幕不是"第 0 天"意义上的第 0 天，但 `clock.day` 就是 0（显示「Day 0」）');
       t.eq(v.phase, '序幕', '阶段是序幕');
-      t.eq(v.popups.length, 1, '★ 一次只铺一条 ⇒ 弹窗恰好 1 个（顺序靠结构，不靠玩家自觉）');
-      t.deep(v.prologue, { seq: 1, total: 9, day: 1, remaining: 1 }, '★ 视图要能告诉玩家"在读第几条"');
+      t.eq(v.popups.length, 8, '★ 一次全铺 8 条 ⇒ 弹窗 8 个（平铺 · 自由点选，顺序不再靠结构）');
+      t.deep(v.prologue, { seq: 1, total: 9, day: 1, remaining: 8, openingLaid: false },
+        '★ 视图要能告诉玩家"在读第几条、末条出现了没"（按钮随 `openingLaid` 消失）');
       t.eq(v.popups[0].title, '朝会', '第 1 条是朝会');
       t.eq(v.gold, 0, '序幕不发钱 —— 「金币 5」是进入第 1 天那次周例钱');
       t.eq(v.desire.value, 30, '序幕占位欲念 30');
@@ -395,10 +447,10 @@ const 会话层接线: Suite = {
       t.ok(nd.error.includes('档 A'), `错因要说清是档 A 未清：${nd.error}`);
       t.eq(s.view().day, 0, '★ 被拦下 ⇒ 时钟纹丝不动（不许"拦了但还是翻页了"）');
 
-      // 点掉一条（还剩 9 条）—— 照样拦
+      // 点掉一条（还剩 7 条）—— 照样拦
       await s.clickPopup('e1', 0);
-      t.eq((await s.nextDay()).ok, false, '★ 清了 1 条还剩 9 条，仍然拦');
-      t.eq(s.view().popups.length, 1, '第 2 条已经铺出来了');
+      t.eq((await s.nextDay()).ok, false, '★ 清了 1 条还剩 7 条，仍然拦');
+      t.eq(s.view().popups.length, 7, '剩下 7 条还在等玩家点（不再"铺下一条"）');
     });
 
     // ── ★★ 2026-10-05：末条**必须先选欲望**，否则那条会被点掉 = 弹窗卡死 ──

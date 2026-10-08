@@ -51,10 +51,10 @@ function commonPrefix(x: string, y: string): number {
 
 export const suites: Suite[] = [
   {
-    name: '欲望原型表（玩家挑的那 5 条 · 唯一事实源）',
+    name: '欲望原型表（玩家挑的那 6 条 · 唯一事实源）',
     register(t) {
-      t.test('★ 恰好 5 条（用户裁定：开局从这 5 条里选其一）', () => {
-        t.eq(DESIRE_KITS.length, 4, '用户 2026-10-06 裁定的 4 条');
+      t.test('★ 恰好 6 条（开局从这 6 条里选其一）', () => {
+        t.eq(DESIRE_KITS.length, 6, '2026-10-06 裁定的 4 条 ＋ 2026-10-08 追加的 2 条（「猫」「龙」）');
       });
 
       t.test('★ 每条**两句都在、且都非空** —— 宣言 ＋ 命题缺一句就有一个读者没内容', () => {
@@ -65,7 +65,7 @@ export const suites: Suite[] = [
         }
       });
 
-      t.test('★ 宣言逐字 = 用户写下的那五条（它们是玩家自己说的话，不是模型文案）', () => {
+      t.test('★ 宣言逐字 = 用户写下的那几条（它们是玩家自己说的话，不是模型文案）', () => {
         t.deep(
           DESIRE_KITS.map((k) => k.manifesto),
           [
@@ -73,6 +73,8 @@ export const suites: Suite[] = [
             '兄弟，请替我圆了这大侠梦！',
             '经济基础决定上层建筑，消灭一切阻碍生产力发展的旧事物！',
             '人生的意义是什么？被社会所建构的价值是否值得追寻？世界的本质与真理又为何？',
+            '怎敢直视哈基米大人的眼睛！再看直接对你哈气！！',
+            '以炼金与魔法之名，铸我塞兰的圣兽图腾！奶龙降世，万民朝拜！',
           ],
         );
       });
@@ -126,7 +128,9 @@ export const suites: Suite[] = [
       t.test('kitOf 越界即 null（**不抛**：调用侧要的是"重挑一个"）', () => {
         t.eq(kitOf(0)?.label, DESIRE_KITS[0].label);
         t.eq(kitOf(3)?.label, DESIRE_KITS[3].label);
-        t.eq(kitOf(4), null, '第 5 条已删 ⇒ 下标 4 越界');
+        t.eq(kitOf(4)?.label, DESIRE_KITS[4].label, '2026-10-08 追加的「猫」⇒ 下标 4 合法');
+        t.eq(kitOf(5)?.label, DESIRE_KITS[5].label, '2026-10-08 追加的「龙」⇒ 下标 5 合法');
+        t.eq(kitOf(6), null, '只有 6 条 ⇒ 下标 6 越界');
         t.eq(kitOf(-1), null);
         t.eq(kitOf(1.5), null);
         t.eq(kitOf(Number.NaN), null);

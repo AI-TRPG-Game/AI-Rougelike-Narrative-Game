@@ -512,8 +512,11 @@ const 会话动作: Suite = {
 
     t.test('★ /api/items/order：槽位排序只许同集重排（2026-10-07 · 生效优先级 = 槽位顺序）', async () => {
       const s = await startDay1(20260921);
+      // ⚠️ 2026-10-08（无人携带）：初始物品 `holder=null` ⇒ 先装备到玩家身上再排
+      const g1 = await s.give('npc000', ['it001', 'it002']);
+      t.ok(g1.ok, `装备到玩家身上：${g1.error}`);
       const me = s.ledger.entities.people.find((x) => x.id === 'npc000')!;
-      t.ok(me.items.length >= 2, '开局玩家身上有两样东西（短匕首 / 旧游记）');
+      t.ok(me.items.length >= 2, '装备后玩家身上有两样东西（短匕首 / 旧游记）');
       const [a, b] = me.items;
       const bad = await s.reorderItems('npc000', [a, b, 'it_ghost']);
       t.eq(bad.ok, false, '多一件不收');
@@ -1413,6 +1416,122 @@ const 玩家界面: Suite = {
         /resetLocalViewState\(\)\{[\s\S]{0,1400}feedCursorSkipOnce = false;/.test(html),
         '★★ 读档历史重播未修（skip 标记 / adopt 分支 / loadGame 置真 / 回标题清零 之一缺失）',
       );
+
+      // ㉒ 2026-10-07 用户 bug：「人还没结算就回来 / 换开别的事件手牌跟着变」——
+      //    deskUsedIds 必须是**全局口径**（不看 detailOpen）：
+      //    ① 扫全部 picks / fixPicks（页面态：放着还没交的）；
+      //    ② 扫 v.waiting 的 handler ＋ participants（账面态：已提交未揭晓，
+      //       点 ✔ 后 picks 已清，靠这半边知道"他还在外面"）。
+      t.ok(
+        /function deskUsedIds\(\)\{[\s\S]{0,900}for \(const id in picks\)/.test(html) &&
+        /function deskUsedIds\(\)\{[\s\S]{0,1300}for \(const fp in fixPicks\)/.test(html) &&
+        /function deskUsedIds\(\)\{[\s\S]{0,1600}arr\(v\.waiting\)/.test(html) &&
+        /function deskUsedIds\(\)\{[\s\S]{0,1800}e\.handler/.test(html),
+        '★★ deskUsedIds 退回了「只看当前开着那张卡」的旧口径（人提前回来 / 换卡手牌变化复发）',
+      );
+      t.ok(
+        !/function deskUsedIds\(\)\{[\s\S]{0,200}detailOpen && detailOpen\.kind === 'fix'/.test(html),
+        '★★ deskUsedIds 里还有 detailOpen 依赖（换开别的事件手牌会变）',
+      );
+
+      // ㉓ 2026-10-07 用户 bug：「方框符号旁边有莫名其妙的空格」——
+      //    LLM 散文里的半角空格/被甩到行首的后引号原样渲染。
+      //    净化器 tidyProse 必须存在，且 segline（结算正文）与 escProse（各散文口）都接上。
+      t.ok(
+        html.includes('function tidyProse(s)') &&
+        /const escProse = \(s\) => esc\(tidyProse\(s\)\);/.test(html) &&
+        /function segmentHtml\(text, cls\)\{[\s\S]{0,120}tidyProse\(text\)/.test(html) &&
+        (html.match(/escProse\(/g) || []).length >= 5,
+        '★★ 散文净化器没接上（tidyProse / escProse / segmentHtml 之一缺失）',
+      );
+
+      // ㉔ 2026-10-08 用户裁定（**装备统一口径**，取代上一版"两半拆分"）：
+      //    物品卡从一个人身上拖下来，**无论落到哪（包括另一个人身上）都只能回手牌区**
+      //    （收回）；"给出去"只能从**手牌区的物品卡**发起（拖到手牌区人物卡 / 展开人物卡）。
+      //    ⇒ 卡级候选只认「我自己的东西」；别人的东西落到任何卡上都落穿到带子 ＝ 收回。
+      t.ok(
+        /const cardHit = under && under\.closest\('\.hcard\[data-to-whom\],\.pcard\[data-to-whom\],\.icard\[data-to-whom\]'\);/.test(html) &&
+        /dragSrc\.kind === 'item' && !dragSrc\.holder && cardHit/.test(html) &&
+        !/cardHit\.dataset\.toWhom === myId/.test(html),
+        '★★ 物卡落点仍会被卡级 data-to-whom 半路截走（从人身上拖下的东西没有一律回手牌区）',
+      );
+      // ㉕ 2026-10-08（**无人携带**）：拖回手牌区＝摘下，没有携带位上限，
+      //    拒绝只剩一种 —— 它本来就没在任何人身上。旧话术（"已经在你手上了"）
+      //    是"玩家=艾德里安、卡带=他的物品栏"旧模型的产物，整句废除。
+      t.ok(
+        html.includes('这件没有装备在任何人身上 —— 它就在手牌区') &&
+        !html.includes('这件已经在你手上了'),
+        '★★ 拖回手牌区的拒绝话术还是旧口径（应只有"已在手牌区"一种拒法）',
+      );
+      // ㉖ 2026-10-08 用户裁定（**装备统一口径**＋**无人携带**）：装备只有一条路 ——
+      //    **手牌区物卡（holder=null）→ 人物卡**（手牌区人物卡 / 展开人物卡）。
+      //    canDropOn 的槽级（.islot 换位）/卡级分支必须认 `!holder`；事件人位不再接物卡；
+      //    拒绝提示要指路"先摘回手牌区"。
+      t.ok(
+        /if \(src\.holder === slot\.dataset\.slotwho\) return true;/.test(html) &&
+        /!src\.holder && canGiveTo\(src\.id, slot\.dataset\.slotwho\)/.test(html) &&
+        /!src\.holder && canGiveTo\(src\.id, slot\.dataset\.toWhom\)/.test(html) &&
+        html.includes('先拖回手牌区，再从手牌区的物品卡拖给要给的人') &&
+        !/data-to-whom="' \+ carryTo/.test(html),
+        '★★ 装备统一口径没落地（槽级/卡级落点没有"无人携带"闸 ／ 人位还挂着死的 data-to-whom ／ 拒绝提示没指路）',
+      );
+      // ㉗ 2026-10-08 用户第 2 条：事件台**没点 ✔ 就退场 ⇒ 台面全清**
+      //    （×／点遮罩／直接点开别的卡／去自建／去下一天，人物卡与金币全回手牌区；
+      //    点 ✔ 的两条路不在此列 —— 要么已扣账、要么刻意留作回看）。
+      t.ok(
+        /function discardDeskPicks\(\)\{/.test(html) &&
+        /if \(act === 'closeDetail'\) \{[\s\S]{0,200}discardDeskPicks\(\)/.test(html) &&
+        /id === 'overlay'\) \{ discardDeskPicks\(\)/.test(html) &&
+        /act === 'detail'\) \{[\s\S]{0,200}discardDeskPicks\(\)/.test(html),
+        '★★ 事件台退出没有统一清台面（没点 ✔ 的摆卡不该被记住）',
+      );
+      // ㉘ 2026-10-08 用户裁定：卡带物卡 ＝ **无人携带**（holder=null）的东西；
+      //    谁身上的（含玩家自己那张卡）只在人物卡 @n 与详情页卡槽里看。
+      t.ok(
+        /const handItems = arr\(v\.items\)\.filter\(\(it\) => !it\.consumed && !it\.holder\)/.test(html) &&
+        /data-holder=""' \+/.test(html) &&
+        !/data-to-whom="npc000"' \+/.test(html),
+        '★★ 卡带物卡还挂在"玩家物品栏"旧模型上（应渲染无人携带的东西）',
+      );
+    });
+
+    // ⚠️⚠️ 2026-10-07（用户报告四条：物品乱 / 放不上人 / 吞金币 / 空态顶掉欲望）
+    t.test('★★ 物品一致性 ＋ 放置原因 ＋ 金币净额 ＋ 空态台面（五处接线）', () => {
+      const html = readHtml();
+      // ① 金币净额：placedGold 只数「待处理」的台面 —— 已提交的钱服务端已扣，不得重复减
+      t.ok(
+        /function placedGold\(\)\{[\s\S]{0,700}ev\.status !== '待处理'[\s\S]{0,200}continue;/.test(html),
+        '★★ placedGold 没按事件状态过滤（提交后的钱被双扣 ⇒ 吞金币）',
+      );
+      // ② 空态也要完整台面：leftHtml（欲望/最终任务 ＋ 未入队）住在 .canvas-pan 里
+      t.ok(
+        /leftHtml\(v\)[\s\S]{0,400}这会儿没有摆在你面前的事。/.test(html),
+        '★★ 空态没挂 leftHtml（欲望与未入队被顶掉）',
+      );
+      // ③ 拖放拒绝要说人话：dropBlockReason 存在且接在松手失败分支上
+      t.ok(
+        html.includes('function dropBlockReason(slot, src)') &&
+        /} else if \(dropHit\) \{[\s\S]{0,300}dropBlockReason\(dropHit, src\)/.test(html),
+        '★★ 拖放被拒时不给原因（玩家只能一遍遍试）',
+      );
+      // ④ 必放位只收那位本人：required_person 未进场时 ① 号位拒收别人
+      //    ⚠️ 2026-10-08 订正：canDropOn 里变量叫 `ev`，旧断言锚住的 `e.requiredPerson`
+      //    是个**不存在的变量** ⇒ 每次拖人卡进事件槽都 ReferenceError（被 try/finally
+      //    吞掉）⇒ 所有事件槽放不进任何人。守卫连同负向检查一起钉死 `ev.`。
+      t.ok(
+        /ev\.requiredPerson && slot\.dataset\.sloti === '0' &&[\s\S]{0,200}src\.id !== ev\.requiredPerson\.id/.test(html) &&
+        !/[^v]e\.requiredPerson && slot\.dataset\.sloti/.test(html),
+        '★★ ① 号位"非他不可"的拖拽判据缺失或又写回不存在的 `e`（拖人卡必抛错 ⇒ 全部放不上）',
+      );
+      // ⑤ 2026-10-08（用户裁定「在身上时会有对应的词条效果」）：我的卡也画物品词条。
+      //    旧口径"我带的东西以物卡身份排在卡带上"已随「无人携带」改动失效 ——
+      //    手牌区只画 holder 为空的物品 ⇒ 我带着的不再出现在卡带上，
+      //    词条成了卡面上唯一可见的携带痕迹（负向检查同时钉死旧口径别回来）。
+      t.ok(
+        html.includes('const itemTags = (!gone ? arr(p.items).map(function (it) {') &&
+        !html.includes('const itemTags = (!gone && !isMe ?'),
+        '★★ 我的卡没有物品词条（无人携带后我带的东西不在卡带上，词条是唯一可见痕迹）',
+      );
     });
 
     // ⚠️⚠️ 2026-10-06（用户裁定问题 8：「事件在地图上的显示很奇怪，**部分事件的图层会重叠**」）
@@ -1613,9 +1732,12 @@ const 玩家界面: Suite = {
       t.ok(railFn.includes('handItemCard'), '★ 物是**卡带上的独立卡**（不是人卡的附属小片）');
       t.ok(bodyOf('renderHand').includes('handRailInner(v)'),
         '★ 且 `renderHand` 真的调它（底部卡带不是空的）');
-      t.ok(railFn.includes('arr(me.items)'), '主角手上的东西取的是 `me.items`（不是某个人 `p.items`）');
+      // ⚠️ 2026-10-08（无人携带）：卡带物卡取的是**全表里没人拿着的**（`!it.holder`）
+      //    —— 不再是 `me.items`（"卡带=玩家物品栏"的旧模型已废，见守卫 ㉘）。
+      t.ok(railFn.includes('arr(v.items).filter((it) => !it.consumed && !it.holder)'),
+        '主角手上的东西取的是 `v.items` 里**无人携带**的（不是某个人 `p.items`）');
       t.ok(item.includes('data-kind="item"'), '★ 它是**可拖的源**（带 `data-kind="item"`）—— 否则交不了给任何人');
-      t.ok(item.includes('data-to-whom'), '带 `data-to-whom`（拖回自己那张卡＝收回）');
+      t.ok(item.includes('data-holder'), '带 `data-holder=""`（无人携带：拖拽源要知道它没在任何人身上）');
       t.ok(!bodyOf('handCard').includes('miniItems') || !bodyOf('handCard').includes('carryrow"'),
         '★ 人卡上**不再画**携带物（那是"点不开"的成因）；它在浮层里看');
     });
