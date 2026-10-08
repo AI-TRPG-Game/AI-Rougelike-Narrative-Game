@@ -6,13 +6,11 @@
 
 游戏界面展示：
 
-![](C:\Users\24559\AppData\Roaming\marktext\images\2026-10-08-13-57-15-image.png)
-
-![](C:\Users\24559\AppData\Roaming\marktext\images\2026-10-08-13-17-33-image.png)
-
-![](C:\Users\24559\AppData\Roaming\marktext\images\2026-10-08-13-18-46-image.png)
-
-![](C:\Users\24559\AppData\Roaming\marktext\images\2026-10-08-13-19-44-image.png)
+| **开局**：从六句宣言里挑一句，决定你这 28 天的欲望 | **主界面**：地图上的事件、手牌区的物品与随从 |
+| --- | --- |
+| ![开局：原初欲望的觉醒](docs/screenshots/01-origin-desire.png) | ![主界面：事件地图与手牌区](docs/screenshots/02-main-map.png) |
+| **人物卡**：六维属性与人物小传，随事件实时解锁 | **结局**：一周目按四条叙事维度结算 |
+| ![人物卡：奥德里克三世](docs/screenshots/03-character-card.png) | ![结局：陨命](docs/screenshots/04-ending.png) |
 
 ## 玩法简介
 
@@ -25,7 +23,7 @@
 ## 下载
 
 ```bash
-git clone https://github.com/<你的用户名>/<仓库名>.git
+git clone https://github.com/AI-TRPG-Game/AI-Rougelike-Narrative-Game
 ```
 
 或者：GitHub 仓库页面 → **Code → Download ZIP** → 解压到任意目录。
@@ -66,21 +64,4 @@ git clone https://github.com/<你的用户名>/<仓库名>.git
 | `game/runs/`  | 每局真模型的调用证据（留档排查用），不会被上传        |
 | `game/.env`   | 你的 API Key，**永远不会**被提交进 git    |
 
-## 常见问题
-
-- **双击 vbs 后弹出「已保护你的电脑」/ 安全警告**：这是 Windows 对"从网上下载的脚本"的例行提醒（Download ZIP 解压出来的文件都带这个标记）。点「更多信息 → 仍要运行」即可；用 `git clone` 下载则一般没有这一步。
-- **双击 vbs 提示找不到 Node.js**：还没装 Node.js，或装的是很老的版本。装好 22.18+ 后再双击。
-- **服务端窗口里报 `ERR_UNKNOWN_FILE_EXTENSION`**：Node 版本太老（跑不了 `.ts` 源码），升级到 22.18+。
-- **那个黑色服务端窗口是干什么的**：它是游戏服务本体，保持开着（可最小化）。窗口标题出现「选择」二字只是你点进了控制台的文本选择模式，按 `Esc` 退出即可，不是故障；**选中文字时服务会被暂停**，所以别让它在选择状态挂着。
-- **提示端口被占用**：换一个端口启动，例如 `node game/src/ui/server.ts --live --port 6000`，然后访问对应地址。
-- **想重新开一局**：标题屏选一个空槽即可，旧槽不会被覆盖。
-
-## 开发者
-
-运行全量测试（离线，不需要 key）：
-
-```bash
-node game/src/main.ts --tests
-```
-
-项目零依赖、无构建步骤：Node 直接跑 TypeScript 源码。架构原则是「LLM 提议叙事，规则层裁定结果」——模型的一切输出都要过规则校验与可行性检查才能落账。
+# 
