@@ -24,8 +24,8 @@ import { commitBatch } from '../ledger/apply.ts';
 import { emptyBatch } from '../ledger/batch.ts';
 import { formatEventId } from '../ledger/ids.ts';
 import { findPerson, PLAYER_ID, type Ledger, type Person } from '../ledger/types.ts';
-import { addPoints, nowOf, remainingToday } from '../rules/clock.ts';
-import { BASE_ACTION_POINTS } from '../rules/x.ts';
+import { addPoints, nowOf } from '../rules/clock.ts';
+import { availableToday } from '../rules/x.ts';
 import type { Rng } from '../rules/rng.ts';
 import type { Brain } from './brain.ts';
 
@@ -153,9 +153,9 @@ export function restore(
     people.push(p);
   }
 
-  // 各人当日剩余够这次的点数（下属看**容量**、玩家看**时间读数**）—— 不够者置灰
-  const leftOf = (p: Person): number =>
-    p.id === PLAYER_ID ? remainingToday(ledger) : ledger.actionPoints.byNpc[p.id] ?? BASE_ACTION_POINTS;
+  // 各人当日剩余够这次的点数 —— 2026-10-08 起统一走 `availableToday`
+  // （NPC = 时间流速余额与「今日已承诺」取小；玩家 = 今天剩余时间）
+  const leftOf = (p: Person): number => availableToday(ledger, p, ledger.clock.day);
   for (const p of people) {
     const left = leftOf(p);
     if (left < spec.points) {
@@ -169,14 +169,13 @@ export function restore(
   if (rejected.length > 0) return { ledger, rejected, cost, log: [], time: null };
 
   // ── 排布：走唯一写入口（批内只累加，批末钳一次）──────────────
+  // ⚠️ 2026-10-08 起医治**不再即时扣 byNpc**：这一单是「今日启程、在办的揭晓待办」，
+  //    自然计入 `availableToday` 的「今日已承诺」——与普通排布同一条平衡；
+  //    点数照旧随拨钟全员同速流逝（`turn/time.ts·pushTime`）。
   const l: Ledger = structuredClone(ledger);
   const batch = emptyBatch(l);
   const log: string[] = [];
   batch.gold -= cost;
-  for (const p of people) {
-    // 玩家**不写 byNpc**（写了会造出 `turnOver` 永不清的幽灵计数）——他的点是时间，拨针时付。
-    if (p.id !== PLAYER_ID) batch.actionPoints.byNpc[p.id] = -Math.min(spec.points, leftOf(p));
-  }
 
   // ── 合成事件：复用事件池的「处理中 → 揭晓」整条通道 ──────────
   const target = people[0];

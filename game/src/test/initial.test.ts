@@ -233,9 +233,9 @@ export const suites: Suite[] = [
 
       t.test('★ 序幕占位数值：**金币 0** ＋ 权势 5 ＋ 其余声望 0 ＋ 欲念 30', () => {
         const l = initialLedger();
-        // ⚠️ 金币写 0 才是对的：《设定.md》那句「金币 5」自带注解——「即进入第 1 天时发的那次
-        //    周例钱……不是额外的一笔」⇒ 由 `turnOver` 在第 1 天发放，开局预置会让第 1 天变 10。
-        t.eq(l.scalars.gold, 0, '第 1 天的周例钱才是那 5 枚（见 `payrollForDay(1)`）');
+        // ⚠️ 金币写 0 才是对的：《设定.md》那句自带注解——「即进入第 1 天时发的那次
+        //    周例钱……不是额外的一笔」⇒ 由 `turnOver` 在第 1 天发放，开局预置会让第 1 天变 40。
+        t.eq(l.scalars.gold, 0, '第 1 天的周例钱才是那 20 枚（见 `payrollForDay(1)`，2026-10-08 由 5 提到 20）');
         t.eq(l.scalars.rep.权势, 5);
         t.eq(l.scalars.rep.善名 + l.scalars.rep.恶名 + l.scalars.rep.侠名 + l.scalars.rep.怪名, 0, '其余声望 0');
         t.eq(l.desire.value, 30, '欲念 30 —— 写成 0 会让档 A 点一次「偏离」就当场判「迷失」');

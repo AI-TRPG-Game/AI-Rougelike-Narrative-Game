@@ -37,7 +37,7 @@ import { instantEndingOf, isFinalDay } from '../rules/ending.ts';
 import { evalGates } from '../rules/gates.ts';
 import { makeRng, type Rng } from '../rules/rng.ts';
 import { PROLOGUE_TOTAL, prologueSummaryLines } from '../rules/prologue.ts';
-import { BASE_ACTION_POINTS, calcX } from '../rules/x.ts';
+import { availableToday, BASE_ACTION_POINTS, calcX } from '../rules/x.ts';
 import { fakeBrain } from '../fixtures/fake.ts';
 import type { Brain } from './brain.ts';
 import { createEvent } from './create.ts';
@@ -199,7 +199,8 @@ function pickArrangeable(
       const okSubs = l.entities.people
         .filter((p) => p.id !== PLAYER_ID && isAvailable(p, l, l.clock.day))
         .filter((p) => {
-          const left = l.actionPoints.byNpc[p.id] ?? BASE_ACTION_POINTS;
+          // 2026-10-08 起：容量 = availableToday（时间流速 + 今日已承诺），镜像闸门 ②
+          const left = availableToday(l, p, l.clock.day);
           return singleDayOf(ev) ? left >= ev.cost : left > 0;
         });
       if (okSubs.length >= need) {
@@ -238,7 +239,7 @@ async function tendWounded(l: Ledger, rng: Rng, brain: Brain): Promise<{ ledger:
         p.affiliated &&
         p.id !== PLAYER_ID &&
         p[spec.field] === 1 && // = 0 是死亡 / 永久疯狂，治不了
-        (cur.actionPoints.byNpc[p.id] ?? BASE_ACTION_POINTS) >= spec.points,
+        availableToday(cur, p, cur.clock.day) >= spec.points,
     );
     for (let i = 0; i < cands.length; i += RESTORE_MAX_PEOPLE) {
       const group = cands.slice(i, i + RESTORE_MAX_PEOPLE);
@@ -669,7 +670,7 @@ export async function simulate(
         (p) =>
           p.id !== PLAYER_ID &&
           isAvailable(p, l, d) &&
-          (l.actionPoints.byNpc[p.id] ?? BASE_ACTION_POINTS) >= 1,
+          availableToday(l, p, d) >= 1,
       );
       const him = avail[0];
       const other = avail[1];

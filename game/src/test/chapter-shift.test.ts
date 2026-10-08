@@ -247,6 +247,14 @@ export const suites: Suite[] = [
       t.test('★ 合格输出 ⇒ 氛围与欲念变化**两半一起落账**', () => {
         const r = applyChapterShift(atDay(8, { desire: 50 }), good(3), CARDS);
         t.eq(r.ledger.divination!.ambition, '铁与盐的味道先到，王城在等一个许可。');
+        t.deep(
+          r.ledger.divination!.cards,
+          [
+            { name: '月亮', reversed: false },
+            { name: '星星', reversed: true },
+          ],
+          '★ 2026-10-08：两张牌随氛围一起落账（UI 在签文旁展示）',
+        );
         t.eq(r.ledger.desire.value, 53, '50 + 3（未命中 ⇒ 用模型值）');
         t.eq(r.before, 50);
         t.eq(r.after, 53);

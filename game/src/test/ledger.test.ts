@@ -8,6 +8,7 @@ import { JsonFileStore } from '../ledger/store-json.ts';
 import { MemoryStore } from '../ledger/store.ts';
 import { PLAYER_ID, type Ledger } from '../ledger/types.ts';
 import { CARRY_CAP, blocked, evalGates } from '../rules/gates.ts';
+import { availableToday } from '../rules/x.ts';
 import { makeRng, scriptedRng } from '../rules/rng.ts';
 import { fakeBrain, makeEvent } from '../fixtures/fake.ts';
 import { handleEvent } from '../turn/handle.ts';
@@ -452,7 +453,16 @@ export const suites: Suite[] = [
         const r = await handleEvent(l, { eventId: 'e1', participants: ['npc001'] }, makeRng(1), fakeBrain());
         t.eq(r.blockedBy.length, 0, '不该被闸门拦下');
         t.eq(r.ledger.clock.usedToday, 0, '排布不扣玩家时间 —— 时间只在 A/B/C 三处流动');
-        t.eq(r.ledger.actionPoints.byNpc['npc001'], 2, '下属**容量**在排布时扣掉 2');
+        t.eq(
+          r.ledger.actionPoints.byNpc['npc001'],
+          4,
+          '★ 2026-10-08：排布**不即时扣容量** —— 时间流速口径，拨时间才扣',
+        );
+        t.eq(
+          availableToday(r.ledger, r.ledger.entities.people.find((x) => x.id === 'npc001')!, 1),
+          2,
+          '★ 但今日已承诺 2 点（「一人一天 ≤ 4 点」由 availableToday 把关）',
+        );
         const ev = r.ledger.events.live.find((e) => e.id === 'e1')!;
         t.eq(ev.status, '揭晓待办');
         t.deep(ev.started_at, { day: 1, used: 0 });
@@ -515,20 +525,59 @@ export const suites: Suite[] = [
         t.eq(d.ledger.events.live.find((e) => e.id === 'e1')!.gold_locked, 0, '结清后托管归零');
       });
 
+      t.test('★ 2026-10-08 排爆封顶：同一人今日已承诺 4 点 ⇒ 第三次排布被闸门②拦下', async () => {
+        // 新模型下 byNpc 是**时间流速余额**（拨时间才掉），「一人一天 ≤ 4 点」的封顶
+        // 全靠 `availableToday = byNpc ∩ (4 − committedToday)` 把关 —— 这条测试钉的就是它。
+        const l = setup(2);
+        l.events.live.push(
+          makeEvent({ id: 'e2', title: '第二件事', tier: 'B', cost: 2, min_people: 1, max_people: 3, min_gold: 0, deadline: 1, created_day: 1 }),
+          makeEvent({ id: 'e3', title: '第三件事', tier: 'B', cost: 2, min_people: 1, max_people: 3, min_gold: 0, deadline: 1, created_day: 1 }),
+        );
+        const a = (await handleEvent(l, { eventId: 'e1', participants: ['npc001'] }, makeRng(1), fakeBrain())).ledger;
+        const r2 = await handleEvent(a, { eventId: 'e2', participants: ['npc001'] }, makeRng(1), fakeBrain());
+        t.eq(r2.blockedBy.length, 0, '今日已承诺 2 点，再接 2 点的单子正好满额 ⇒ 放行');
+        t.eq(
+          availableToday(r2.ledger, r2.ledger.entities.people.find((x) => x.id === 'npc001')!, 1),
+          0,
+          '★ 4 − 已承诺 4 = 0：满了（byNpc 仍是 4 —— 排布不即时扣）',
+        );
+        t.eq(r2.ledger.actionPoints.byNpc['npc001'], 4, '流速余额没被排布动过');
+        const r3 = await handleEvent(r2.ledger, { eventId: 'e3', participants: ['npc001'] }, makeRng(1), fakeBrain());
+        t.ok(
+          r3.blockedBy.some((g) => g.code === 'PARTICIPANT_BUDGET'),
+          '★ 第三次排布被闸门②拦下（封顶由 availableToday 把关）',
+        );
+        t.eq(
+          r3.ledger.events.live.find((e) => e.id === 'e3')!.status,
+          '待处理',
+          '被拦下 ⇒ e3 原样没动',
+        );
+      });
+
       t.test('★ 跨天：cost=8 的事件从第 1 天 0 点排布 ⇒ 第 2 天末尾揭晓', async () => {
         const l = setup(8);
         const a = (await handleEvent(l, { eventId: 'e1', participants: ['npc001'] }, makeRng(1), fakeBrain())).ledger;
         const ev = a.events.live.find((e) => e.id === 'e1')!;
         // ⚠️ 挡位只有 1 / 2 / 4 与 4 的倍数 —— 跨天就得是 8（**不存在 6**）
         t.deep(ev.reveal_at, { day: 2, used: 4 }, '{1,0} + 8 点 = 第 2 天末尾');
-        t.eq(ev.depart_cost, 4, '跨天事件：主事者启程即扣光当天剩余（d=4）');
-        t.eq(a.actionPoints.byNpc['npc001'], 0, '他今天已经没有容量了');
+        t.eq(ev.depart_cost, 4, '跨天事件：记录主事者启程时的当日可接活点数（d=4）');
+        t.eq(a.actionPoints.byNpc['npc001'], 4, '排布不即时扣容量（时间流速口径）');
 
         // 第 1 天拍满 4 点 —— 不该揭晓
         const d1 = await dial(a, 4, makeRng(2), fakeBrain());
         t.eq(d1.revealed.length, 0, '第 1 天末尾还不到 reveal_at');
         t.eq(d1.ledger.clock.day, 1, '拨时针**不跨天**');
         t.eq(d1.ledger.clock.usedToday, 4, '拍满一天');
+        t.eq(
+          d1.ledger.actionPoints.byNpc['npc001'],
+          0,
+          '★ 2026-10-08：拨满 4 点 ⇒ 全员（含在途者）容量随时间流走',
+        );
+        t.eq(
+          d1.ledger.actionPoints.byNpc['npc002'],
+          0,
+          '★ 2026-10-08：闲置者容量也随拨钟流走（全员时间流速一致）',
+        );
         t.rejects(async () => await dial(d1.ledger, 1, makeRng(9), fakeBrain()), '允许区间');
 
         // 跨天**只能**靠「进入下一天」——这是天界是硬墙的结构保证
@@ -680,7 +729,12 @@ export const suites: Suite[] = [
         // ⚠️ 2026-10-07 用户裁定（第十五批）：恢复**延迟生效** —— 提交只排布
         t.eq(hpOf(r.ledger, 'npc001'), 1, '提交那一刻还没回满（要到点）');
         t.eq(r.ledger.scalars.gold, 9, '诊金提交即扣');
-        t.eq(r.ledger.actionPoints.byNpc['npc001'], 1, '占被治疗者 3 点容量（4 − 3）');
+        t.eq(r.ledger.actionPoints.byNpc['npc001'], 4, '★ 2026-10-08：医治不即时扣 byNpc（时间流速口径）');
+        t.eq(
+          availableToday(r.ledger, r.ledger.entities.people.find((x) => x.id === 'npc001')!, 1),
+          1,
+          '★ 但今日已承诺 3 点（医治占用被治疗者的当日额度）',
+        );
         const ev = r.ledger.events.live.at(-1)!;
         t.eq(ev.title, '医馆 · 疗伤');
         t.eq(ev.status, '揭晓待办', '合成事件直接进「处理中」');
@@ -702,7 +756,12 @@ export const suites: Suite[] = [
         t.eq(r.cost, 3, '3 金');
         t.eq(sanOf(r.ledger, 'npc001'), 1, '提交还没生效');
         t.eq(r.ledger.scalars.gold, 7, '10 − 3');
-        t.eq(r.ledger.actionPoints.byNpc['npc001'], 2, '占被治疗者 2 点容量（4 − 2）');
+        t.eq(r.ledger.actionPoints.byNpc['npc001'], 4, '医治不即时扣 byNpc（时间流速口径）');
+        t.eq(
+          availableToday(r.ledger, r.ledger.entities.people.find((x) => x.id === 'npc001')!, 1),
+          2,
+          '今日已承诺 2 点',
+        );
         const t2 = await dial(r.ledger, 2, makeRng(2), fakeBrain());
         t.eq(sanOf(t2.ledger, 'npc001'), 3, '到点回满到 3');
       });
@@ -720,8 +779,8 @@ export const suites: Suite[] = [
         const last = t2.ledger.summaries.recent.at(-1)!;
         t.eq(last.day, 1);
         t.eq(last.text, `玩家在医馆治疗了${p1.name}，${p1.name}的身体已经恢复`);
-        // 神殿那条：把同一个人的 SAN 打下来再净化一次（容量重置回来 —— 医馆刚扣掉 3 点；
-        // 当天读数也拨回早上 —— 医馆那针拨掉了 3 点，只剩 1 点拨不出神殿的 2 点）
+        // 神殿那条：把同一个人的 SAN 打下来再净化一次（拨针 3 点后容量只剩 4−3=1、
+        // 当天读数也拨回早上 —— 不摆回去就拨不出神殿那 2 点；医馆那单已结清、不占承诺）
         const l2 = structuredClone(t2.ledger);
         l2.entities.people.find((x) => x.id === 'npc001')!.san = 1;
         l2.actionPoints.byNpc = { ...l2.actionPoints.byNpc, npc001: 4 };

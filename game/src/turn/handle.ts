@@ -1,7 +1,8 @@
 // 「排布一条事件」—— 派遣 / 玩家亲自（不穿越）
 //
-// 顺序：闸门 → **裁定（LLM）** → 投骰（规则层）→ **结算（LLM）** → 扣下属容量 / 锁金币
+// 顺序：闸门 → **裁定（LLM）** → 投骰（规则层）→ **结算（LLM）** → 锁金币
 //       → 事件进入「揭晓待办」→ 结果存进 `pending`
+//       （2026-10-08 起排布**不再即时扣下属容量** —— 容量随时间全员同速流逝，见 `turn/time.ts`）
 //
 // ⚠️ 2026-09-18 时钟模型改造后，本函数**不再推进玩家时间、也不再当场落账**：
 //    · 玩家时间只在 A（场景穿越）/ B（拨时针）/ C（进下一天）三处流动；
@@ -26,7 +27,7 @@ import { dangerZoneOf } from '../rules/desire.ts';
 import type { DangerZone } from '../rules/dice.ts';
 import { blocked, evalGates } from '../rules/gates.ts';
 import type { Rng } from '../rules/rng.ts';
-import { BASE_ACTION_POINTS } from '../rules/x.ts';
+import { availableToday, BASE_ACTION_POINTS } from '../rules/x.ts';
 import type { Brain } from './brain.ts';
 import { revealDue } from './time.ts';
 
@@ -198,24 +199,18 @@ export async function handleEvent(
 
   const bonuses = bonusLabels(l, input.participants);
 
-  // ── 扣**下属容量**（排布即扣）───────────────────────────────
-  // ⚠️ 玩家**不扣任何东西**：他的 4 点是**时间**，只在时间流逝时走；这里扣的是下属的**容量**。
-  // ⚠️ 跨天事件（`cost > 4`）：主事者启程即把**当天剩余**一次性扣光（记作 `d`），
-  //    归队日只回升 `d` 点 —— 这就是 `depart_cost` 的来历。
+  // ── 跨天事件：记下主事者**启程时还能接活多少**（`depart_cost`，记录口径）──
+  // ⚠️⚠️ 2026-10-08 用户裁定「拨时间拨的是所有人的时间」⇒ 排布**不再即时扣容量**：
+  //    参与者的时间与闲置者**同速流逝**（`turn/time.ts·pushTime` 全员扣），
+  //    「一人一天 ≤ 4 点」的平衡改由 `rules/x.ts·availableToday`（今日已承诺）把关。
+  //    `depart_cost` 保留：归队日只回升 `d` 点（`rules/x.ts·subordinatePoints`）——
+  //    数值从「扣光当日剩余」改为「启程时当日还能接活的点数」，语义更贴时间流速。
   const batch = emptyBatch(l);
   const crossDay = ev.cost > BASE_ACTION_POINTS;
-  let departCost = 0;
   /** 【系统已落账】清单 —— ⚠️ **托管投入 P 永不入内**（它是上限，不是已花的钱） */
   const landed: string[] = [];
-  for (const p of members) {
-    // 玩家**不写 byNpc**：写进去会造出一个 `turnOver` 永不清的幽灵计数 ⇒ 闸门 ② 次日起把他卡死。
-    if (p.id === PLAYER_ID) continue;
-    const left = l.actionPoints.byNpc[p.id] ?? BASE_ACTION_POINTS;
-    const spend = crossDay ? left : ev.cost;
-    batch.actionPoints.byNpc[p.id] = -spend;
-    landed.push(`${p.name}(${p.id}) 本日行动力 −${spend}`);
-    if (crossDay && p.id === leader.id) departCost = spend;
-  }
+  const departCost =
+    crossDay && leader.id !== PLAYER_ID ? availableToday(l, leader, l.clock.day) : 0;
 
   // ── 锁金币（托管 P：提交那一刻即扣）─────────────────────────
   const pay = Math.max(0, input.goldInput ?? 0);

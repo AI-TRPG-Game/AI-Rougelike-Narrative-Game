@@ -107,7 +107,12 @@ export function applyChapterShift(
 
   // ── 校验全过 ⇒ 一次性落账（原子）──
   const next = structuredClone(l);
-  next.divination = { ambition: ambience };
+  // ⚠️ 2026-10-08：两张牌随氛围一起落账（此前只进开发日志）—— UI 要在签文旁展示它们。
+  //    ⚠️ 仍是「只读世界氛围、不参与欲念计算」—— 落账只是让它可见，不是让它生效。
+  next.divination = {
+    ambition: ambience,
+    cards: cards.map((c) => ({ name: c.name, reversed: c.reversed })),
+  };
   const before = next.desire.value;
   next.desire.value = clamp(before + change.delta, DESIRE_MIN, DESIRE_MAX);
 

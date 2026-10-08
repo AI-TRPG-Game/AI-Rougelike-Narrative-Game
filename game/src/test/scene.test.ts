@@ -259,6 +259,11 @@ export const suites: Suite[] = [
         const b = sceneBrain({ sceneOverAt: 1 });
         const r = await sceneStep(l, '说完就走', makeRng(6), b);
         t.eq(r.ledger.clock.usedToday, 3, '★ 处理完自动扣 3 点');
+        t.eq(
+          r.ledger.actionPoints.byNpc['npc001'],
+          1,
+          '★ 2026-10-08：被动拨时也全员扣（4−3，含没被派活的闲置者）',
+        );
         t.eq(r.close?.revealed.length, 1, '扣完当场揭晓');
         t.eq(r.ledger.pending.length, 0, '揭晓即兑现 ⇒ pending 清空');
         const ev = r.ledger.events.live.find((e) => e.id === 'e1')!;

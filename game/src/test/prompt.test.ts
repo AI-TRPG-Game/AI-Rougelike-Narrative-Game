@@ -6,7 +6,7 @@
 //   · 装配：system 只放 ①＋②、user 末行为行动提示、两半的块差量正好是【判定结果】【系统已落账】
 //   · 三条硬护栏：`thinking` 必须显式关闭、不传采样参数、两段式只回传 `{档位, 加成}`
 import { initialLedger } from '../ledger/initial.ts';
-import { STATIC_HEAD_PROSE, STATIC_HEAD_PROSE_HASH, hash, renderEntitySkeleton, renderStaticHead } from '../frozen/static-head.ts';
+import { STATIC_HEAD_PROSE, STATIC_HEAD_PROSE_HASH, hash, renderEntitySkeleton, renderStaticHead, staticProseOf } from '../frozen/static-head.ts';
 import {
   assembleCompose,
   assembleCreate,
@@ -194,9 +194,10 @@ export const suites: Suite[] = [
     name: '静态头 · 《开发规划.md》「必须现在就防的四件事」第 1 条',
     register(t) {
       t.test('★ 段 ① 的 hash **锁死** —— 它一变，`compose_day` 与 `resolve` 两个主链的缓存同时作废', () => {
-        // 2026-10-07 用户裁定（难度回调）：加【迎合与荒诞】、摘「即使是荒诞也有其原因」⇒ hash 换版
-        t.eq(STATIC_HEAD_PROSE_HASH, '986fac3e', '静态头变了就得有意为之，并同步更新这个值');
-        t.eq(hash(STATIC_HEAD_PROSE), '986fac3e');
+        // 2026-10-08 用户第 5 条（难度分档）：段 ① 拆「三档共用头 ＋ 三档各自【基调】」，
+        // STATIC_HEAD_PROSE = 档 1（基调比 2026-10-07 那版再倾向玩家）⇒ hash 换版。
+        t.eq(STATIC_HEAD_PROSE_HASH, 'e157347e', '静态头变了就得有意为之，并同步更新这个值');
+        t.eq(hash(STATIC_HEAD_PROSE), 'e157347e');
       });
 
       t.test('段 ① 的正文含【世界观】与【基调】两节（逐字常量，不是渲染出来的）', () => {
@@ -208,11 +209,45 @@ export const suites: Suite[] = [
 
       // ⚠️ 2026-10-07 用户裁定（难度回调）：允许适当迎合 ＋ 允许荒诞；旧句"即使是荒诞也有其原因"
       //    与它直接冲突（逼着 LLM 给每处荒诞找理由），必须保持摘除状态。
+      // ⚠️ 2026-10-08 用户第 5 条：档 1 基调**再倾向玩家一点** ——「可以适当迎合」升为
+      //    「大胆迎合」，「允许适当的荒诞剧情」升为「也欢迎适当的荒诞剧情」。
       t.test('★ 段 ① 有【迎合与荒诞】—— 且旧冲突句「即使是荒诞也有其原因」不得回来', () => {
         t.ok(STATIC_HEAD_PROSE.includes('【迎合与荒诞】'), '要有迎合与荒诞一节');
-        t.ok(STATIC_HEAD_PROSE.includes('可以适当迎合玩家的欲望和他的文本输入'), '放权句要在');
-        t.ok(STATIC_HEAD_PROSE.includes('允许适当的荒诞剧情'), '荒诞许可要在');
+        t.ok(STATIC_HEAD_PROSE.includes('大胆迎合玩家的欲望和他的文本输入'), '放权句要在（档 1 大胆迎合）');
+        t.ok(STATIC_HEAD_PROSE.includes('也欢迎适当的荒诞剧情'), '荒诞许可要在');
         t.ok(!STATIC_HEAD_PROSE.includes('即使是荒诞也有其原因'), '旧冲突句不许回来');
+      });
+
+      // ⚠️ 2026-10-08 用户第 5 条（难度选择弹窗）：段 ① 拆为「三档共用头 ＋ 三档各自【基调】」
+      //    （档 1/2 另带【迎合与荒诞】；同日晚些用户逐字修订后，档 3 的态度并入【基调】、无此块）——
+      //    `STATIC_HEAD_PROSE` 仍是档 1（两段缓存的**前缀基准**），
+      //    `staticProseOf(difficulty)` 按账本挑档；0 / undefined（还没选 / 旧档）落回档 1。
+      t.test('★ 三档人设 —— staticProseOf 按难度挑档；0 / undefined 落回档 1', () => {
+        t.eq(staticProseOf(1), STATIC_HEAD_PROSE, '档 1 就是静态头正本（缓存前缀基准）');
+        t.eq(staticProseOf(0), STATIC_HEAD_PROSE, '0 = 还没选 ⇒ 按档 1 渲染');
+        t.eq(staticProseOf(undefined as unknown as number), STATIC_HEAD_PROSE, '旧档缺键 ⇒ 按档 1 兜底');
+        t.ok(staticProseOf(2).includes('偶尔也会适当纵容玩家的荒谬言行'), '档 2 的纵容句');
+        t.ok(staticProseOf(2).includes('合适的时候，可以迎合'), '档 2 是看时机迎合（2026-10-08 修订版，不是大胆）');
+        t.ok(staticProseOf(3).includes('这是一个严肃真实的西幻世界'), '档 3 的严肃句（2026-10-08 修订版，点明「西幻」）');
+        t.ok(staticProseOf(3).includes('玩家只是茫茫人海中的一个普通人'), '档 3 点明世界不围着玩家转');
+        t.ok(!staticProseOf(3).includes('【迎合与荒诞】'), '档 3 无独立的迎合与荒诞块（态度并入【基调】，2026-10-08 修订）');
+        t.ok(!staticProseOf(3).includes('大胆迎合'), '档 3 不得出现档 1 的迎合句');
+        // 三档共用头一字不差（换档只换【基调】往下的几行，缓存前缀的"头几行"不动）
+        const SHARED = '你是一个肉鸽叙事类游戏的叙事处理器';
+        t.ok(
+          staticProseOf(1).startsWith(SHARED) && staticProseOf(2).startsWith(SHARED) && staticProseOf(3).startsWith(SHARED),
+          '三档共用头一致',
+        );
+      });
+
+      t.test('★ renderStaticHead 读账本 difficulty —— 三档各拼各的段 ①', () => {
+        const l0 = initialLedger();
+        t.eq(l0.difficulty, 0, '开局账本 difficulty = 0（还没选）');
+        t.eq(renderStaticHead(l0), staticProseOf(0) + '\n\n' + renderEntitySkeleton(l0), 'difficulty=0 ⇒ 档 1');
+        const l3 = initialLedger();
+        l3.difficulty = 3;
+        t.ok(renderStaticHead(l3).startsWith(staticProseOf(3)), 'difficulty=3 ⇒ 档 3 开头');
+        t.ok(!renderStaticHead(l3).includes('大胆迎合玩家的欲望'), '档 3 静态头里没有档 1 的迎合句');
       });
 
       t.test('★ 段 ① 已按用户 2026-09-18 定稿**删除「西幻锚定段」** —— 这是有意为之，不是漏写', () => {

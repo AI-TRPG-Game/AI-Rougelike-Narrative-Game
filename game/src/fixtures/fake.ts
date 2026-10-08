@@ -346,6 +346,9 @@ function vouchersFor(ev: GameEvent, tier: Tier | null, l: Ledger): unknown[] {
         item: it.id,
         person: '',
         desc: `「${ev.title}」办成之后留下的凭据`,
+        // 2026-10-08（用户第 6 条）：稀有度 —— 三条 produce 各固定一档，
+        // 离线轨迹自然覆盖「珍稀 / 罕见 / 普通」三种（schema 四档的枚举校验由落账层归一兜底）。
+        rarity: '珍稀',
       });
     }
   }
@@ -356,6 +359,7 @@ function vouchersFor(ev: GameEvent, tier: Tier | null, l: Ledger): unknown[] {
       item: '',
       person: '',
       desc: `走「${ev.title}」这条路走对了`,
+      rarity: '罕见',
     });
   }
   if (ok && roll(ev, 4, 4) === 0) {
@@ -368,6 +372,7 @@ function vouchersFor(ev: GameEvent, tier: Tier | null, l: Ledger): unknown[] {
         item: '',
         person: npc.id,
         desc: `${npc.name} 说：这件事我记着`,
+        rarity: '普通',
       });
     }
   }

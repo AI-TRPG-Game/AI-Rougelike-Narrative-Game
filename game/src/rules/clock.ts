@@ -14,9 +14,10 @@ export const TOTAL_DAYS = 28;
 export const DAYS_PER_CHAPTER = 7;
 export const PROLOGUE_DAYS = 2; // 序幕不计入 28 天，界面显示「Day 0」
 
-/** 周例钱：第 1 / 8 / 15 / 22 天，每次固定 5 金币（全场共 4 次） */
+/** 周例钱：第 1 / 8 / 15 / 22 天，每次固定 20 金币（全场共 4 次）
+ *  ⚠️ 2026-10-08 用户裁定：开局实测金币太少 ⇒ 由 5 提到 20。 */
 export const PAYROLL_DAYS: readonly number[] = [1, 8, 15, 22];
-export const PAYROLL_AMOUNT = 5;
+export const PAYROLL_AMOUNT = 20;
 
 /** ⚠️ 第 1 天那次**就是**序幕占位数值里那个「金币 5」——同一笔，不是两笔 */
 export function payrollForDay(day: number): number {

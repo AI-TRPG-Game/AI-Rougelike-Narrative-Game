@@ -26,6 +26,21 @@ import { placementPools } from '../turn/simulate.ts';
 import { Session } from '../ui/session.ts';
 import type { Suite, T } from './harness.ts';
 
+/**
+ * 读"玩家页的完整源"（2026-10-08 拆分适配）。
+ * index.html 的主脚本已拆成多个经典 script src（js/ 目录）。本文件的静态纪律
+ * 断言全是对**整页源码**做 regex —— 这里把每个 src 引用**原位内联回来**，
+ * 拼成与拆分前内容等价的单页 ⇒ 既有断言零改动。
+ */
+const readPlayerPage = (): string => {
+  const dir = new URL('../ui/', import.meta.url);
+  const html = readFileSync(new URL('index.html', dir), 'utf8');
+  return html.replace(/<script src="js\/([\w.-]+\.js)"><\/script>/g, (_all, name: string) => {
+    const code = readFileSync(new URL('js/' + name, dir), 'utf8');
+    return `<script>\n${code}\n</script>`;
+  });
+};
+
 /** 造 `currentStateBlock` 要的那点账本（它只需要时钟与几个标量 —— 纯派生，不碰别的） */
 const REP0 = { 善名: 0, 恶名: 0, 侠名: 0, 怪名: 0, 权势: 0 };
 
@@ -89,12 +104,12 @@ const 开局与视图: Suite = {
       t.ok(off.view().day >= 1, '★★ 离线路径被 requireLive 波及了（默认必须是 false）');
     });
 
-    t.test('开局 · 与驱动同构：day 1 / 周例钱 5 / 11 人 / 9 地 / 2 物 / 欲念 30', async () => {
+    t.test('开局 · 与驱动同构：day 1 / 周例钱 20 / 11 人 / 9 地 / 2 物 / 欲念 30', async () => {
       const s = await startDay1(20260921);
       const v = s.view();
       t.eq(v.day, 1, '开场动作 = `day 0 → day 1` 再 `enterDay`（与 turn/simulate.ts 逐字同构）');
       t.eq(v.chapter, 1, '《规则.md》§一：第 1 天在第 1 章');
-      t.eq(v.gold, 5, '《设定.md》序幕占位「金币 5」= 进入第 1 天发的那次周例钱（不是额外的一笔）');
+      t.eq(v.gold, 20, '《设定.md》序幕占位 = 进入第 1 天发的那次周例钱（不是额外的一笔；2026-10-08 由 5 提到 20）');
       t.eq(s.ledger.entities.people.length, 11, 'npc000 玩家 ＋ npc001~010 预置');
       t.eq(v.people.length, 10, '视图里的"人手"不含玩家自己（他有单独一格）');
       // ⚠️ 地点**只多不少**：生成侧若写了个没注册过的地名（夹具的「西门码头」就是这么写的），
@@ -476,7 +491,7 @@ const 会话动作: Suite = {
       // ⚠️ 2026-10-07 用户裁定（第十五批）：恢复延迟生效 —— 提交只排布
       t.eq(s.ledger.entities.people.find((x) => x.id === 'npc001')!.hp, 1, '提交那一刻还没回满');
       t.eq(s.view().gold, gold0 - 1, '诊金 1 金币（提交即落账）');
-      t.eq(s.ledger.actionPoints.byNpc['npc001'], 1, '占被治疗者 3 点容量（4 − 3）');
+      t.eq(s.ledger.actionPoints.byNpc['npc001'], 4, '★ 2026-10-08：医治不即时扣 byNpc（时间流速口径，拨时间才扣）');
       const waiting = s.view().waiting;
       t.eq(waiting.length, 1, '画布上长出一张「处理中」的功能事件卡');
       t.eq(waiting[0].title, '医馆 · 疗伤');
@@ -593,7 +608,9 @@ const 视图接线: Suite = {
 const 玩家界面: Suite = {
   name: 'P5-B · 玩家界面（视图 ＋ ui/index.html 静态纪律）',
   register(t) {
-    const readHtml = () => readFileSync(new URL('../ui/index.html', import.meta.url), 'utf8');
+    // ⚠️ 2026-10-08 拆分适配：主脚本已拆成 js/ 下多个文件 —— 走模块级
+    //    readPlayerPage()（src 原位内联回来）⇒ 本套件全部 regex 断言零改动。
+    const readHtml = readPlayerPage;
     /**
      * 取一个顶层渲染函数的函数体（截到下一个顶层 `function ` 为止），**并剥掉注释**。
      * ⚠️ 必须剥注释：本仓的注释里会**引用**它正在解释的那段代码（例如上帝视角那段注释写着
@@ -709,6 +726,107 @@ const 玩家界面: Suite = {
         '★ 三格候选池不自己判"消耗过没有"（成果池口径由 `placementPools` 独管）');
       // ⚠️ 另一半仍然**故意保持全局**：共鸣那条判据没有同类误伤，保持原样最省事。
       t.ok(!readHtml().includes('recognized.length > 0'), '★ UI 不再自己判"给过认可没有"（共鸣池的口径）');
+    });
+
+    // ⚠️⚠️ 2026-10-08 用户裁定（「2/1/0 哪来的」）：「你的欲望」卡上那三颗计数徽标
+    //    **从候选池改成凭证计数** —— 候选池（成果=手上的物品、手段=已了结的事、共鸣=
+    //    给过认可的人）是"终局三格还能放哪些"的内部口径，玩家读成"框里有 N 张卡"，
+    //    而终局三格里一张没有 ⇒ 数字与所见对不上。数 `v.vouchers` 才与手牌区可见的
+    //    凭证卡一一对应。这条断言防它退回候选池口径。
+    t.test('★★ 「你的欲望」徽标数的是凭证（v.vouchers），不是候选池', () => {
+      const mb = bodyOf('missionBlock');
+      t.ok(
+        mb.includes('vs.filter((x) => x.dim === VDIM[k])'),
+        '★★ 徽标没数 v.vouchers（玩家看到的数字必须与手牌区的凭证卡对得上）',
+      );
+      t.ok(!mb.includes('pv.pools'), '★ 徽标又回去数候选池了（那是终局三格的内部口径）');
+    });
+
+    // ⚠️⚠️ 2026-10-08 同批第 4/5 条：难度弹窗改版 ＋ 底栏两颗按钮换位。
+    t.test('★★ 难度弹窗：新标题 / 无小字批注 / A·B·C 前缀 / 点一颗锁全部', () => {
+      const HTML = readHtml();
+      const ov = bodyOf('renderOverlay');
+      t.ok(ov.includes('<h2>你想要一个什么样的故事？</h2>'), '★★ 标题没换成「你想要一个什么样的故事？」');
+      t.ok(!ov.includes('挑一个叙事风味'), '★ 那句小字批注（挑一个叙事风味…）该删了');
+      t.ok(
+        ov.includes("[1, 'A. ") && ov.includes("[2, 'B. ") && ov.includes("[3, 'C. "),
+        '★★ 三个难度选项前没加 A/B/C',
+      );
+      t.ok(!HTML.includes('运动的的'), '★ 「运动的的」双"的"笔误还在（用户裁定去掉一个）');
+      t.ok(
+        ov.includes("(difficultyPicked ? ' disabled' : '')") &&
+        ov.includes("difficultyPicked === x[0] ? ';opacity:.45'"),
+        '★★ 没做「点完一颗 ⇒ 它变暗、其余不可再点」（difficultyPicked 锁 UI）',
+      );
+      t.ok(
+        HTML.includes('difficultyPicked = level;') && HTML.includes('difficultyPicked = 0;'),
+        '★★ 点击侧没接锁定/解锁（先锁再请求，失败归 0 解锁）',
+      );
+    });
+
+    t.test('★★ 底栏：waiting 提示常驻 ＋ 拨钟变大变深 ＋「进下一天」变小', () => {
+      const ft = bodyOf('renderFooter');
+      t.ok(
+        !ft.includes('waitingN > 0') && ft.includes("waitingHint = '<span class=\"fhint\">'"),
+        '★★ 「N 件事在外面办着」还挂着"有 waiting 才显示"的条件（用户裁定：常驻）',
+      );
+      t.ok(
+        ft.includes('class="primary big" data-act="dial"'),
+        '★★ 拨钟按钮没升级成大号深底（primary big）',
+      );
+      t.ok(
+        ft.includes('<button class="primary" data-act="nextday"') &&
+        !ft.includes('primary big" data-act="nextday"'),
+        '★★ 「进下一天」还占着大号样式（用户裁定：拨钟大、翻日小一号）',
+      );
+    });
+
+    // ⚠️⚠️ 2026-10-08（同批第 2 条）：图2 那颗「进入下午」（拨钟）的字要**白**。
+    //   排障时发现的真凶：旧 CSS `footer button[data-act="dial"]{font-size:13px;…
+    //   color:var(--ink-soft)}` 与 `footer button.big` **同特异性且写在后面** ⇒
+    //   上一批的"变大"被它顶掉一半（字号回 13px）、字还被染成灰 —— 图2 实拍正是这副样子。
+    //   ⇒ 旧小钟样式整条退役 ＋ 白字显式盖（夜间主题 `--on-accent` 是深墨）。
+    t.test('★★ 底栏·拨钟白字：旧小钟样式退役，big 的字显式白', () => {
+      const HTML = readHtml();
+      t.ok(
+        !HTML.includes('footer button[data-act="dial"]{font-size:13px'),
+        '★★ 旧「拨钟压小一号」样式还在 —— 它同特异性且写在 big 之后，正把字号顶回 13px、字染灰',
+      );
+      t.ok(
+        HTML.includes('footer button.big, footer button.big:hover:not(:disabled){color:#fff}'),
+        '★★ 拨钟（footer 唯一的 big）的字没有显式白（夜间主题 on-accent 是深墨）',
+      );
+    });
+
+    // ⚠️⚠️ 2026-10-08（同批第 1 条）：点 ✔ 简略处理 ⇒ 这件事**立马**显示「处理中」，
+    //    不等 LLM 回包；等待话术换成「已发送请求，可以继续处理其他事」。
+    //    实现＝乐观挪池（todo→waiting ＋ status 改「揭晓待办」，只动页面这份 view，
+    //    下一次回包用真实信封整体覆盖 ⇒ 成功零收尾；`r===null` ⇔ 没带回包 ⇒ 手动还原）。
+    t.test('★★ 点 ✔ 简略处理：乐观挪池立马「处理中」＋ 话术换「已发送请求」', () => {
+      const HTML = readHtml();
+      t.ok(
+        !HTML.includes('正在裁定这件事'),
+        '★ 旧等待话术（"正在裁定…"）还在 —— 用户裁定换成「已发送请求，可以继续处理其他事」',
+      );
+      t.ok(
+        (HTML.match(/'已发送请求，可以继续处理其他事'/g) || []).length >= 2,
+        '★★ 新话术没接上（commit·简略处理路 ＋ arrange/self 直通路都该是它）',
+      );
+      t.ok(
+        HTML.includes("evObj.status = '揭晓待办'") &&
+        HTML.includes('S.view.todo.splice(evIdx, 1)') &&
+        HTML.includes('S.view.waiting.push(evObj)'),
+        '★★ 没做乐观挪池（todo→waiting）—— 事件不会立马显示「处理中」',
+      );
+      t.ok(
+        HTML.includes('r === null && evObj') &&
+        HTML.includes("evObj.status = '待处理'"),
+        '★★ 失败路径没还原乐观挪池（r===null ⇔ 视图没被回包换过，必须搬回 todo 让玩家重点）',
+      );
+      t.ok(
+        HTML.includes('处理中：正在裁定…'),
+        '★★ statusMark 没给无 reveal_at 的乐观事件兜底（会显示误导性的「还需 0 点」）',
+      );
     });
 
     // ⚠️⚠️ 2026-10-07（真机探针 `probe/verify-desire-panel.mjs` 抓到的）：
@@ -883,14 +1001,26 @@ const 玩家界面: Suite = {
         HTML.includes("d.kind === 'voucher' ? sheetVoucher(v, d.id)"),
         '★★ 详情层分派不认 voucher（点开凭证看不到描述）',
       );
-      // 卡面恰好两行：类型 ＋ 标题
+      // 卡面的头两行：类型 ＋ 标题（2026-10-08 用户第 6 条后又添「性质 ＋ 稀有度」两行小字）
       t.ok(
         /<span class="vh">' \+ esc\(vc\.dimLabel\)/.test(HTML) &&
         /<span class="vt">' \+ esc\(vc\.title\)/.test(HTML),
-        '★★ 卡面不是「类型 ＋ 标题」两行',
+        '★★ 卡面开头不是「类型 ＋ 标题」两行',
       );
-      // 事件类那屏写清是「事件概要」（用户第 22 条：系统自动映射为它的概括）
-      t.ok(HTML.includes('事件概要'), '★★ 事件类凭证没标出"事件概要"');
+      // ⚠️ 2026-10-08 用户第 2 条：三类凭证的详情主段统一为「凭证上的话」（LLM 写的 30~75
+      //    字描述，`vouchersOf` 以 `v.desc` 为先）—— 旧的「事件概要」标题已废。
+      t.ok(HTML.includes('凭证上的话'), '★★ 凭证详情页没有「凭证上的话」主段标题');
+      // ⚠️⚠️ 2026-10-08 用户第 6 条：凭证加【稀有度】（普通/罕见/珍稀/传说）——
+      //    卡面与详情页都要显示。卡面那行带 `data-r`（CSS 按档配色），详情页是一节。
+      t.ok(
+        /<span class="vr" data-r="' \+ esc\(vc\.rarity \|\| '普通'\)/.test(HTML),
+        '★★ 凭证卡面没有稀有度那一行（用户裁定：卡牌上也要有这个字段）',
+      );
+      t.ok(
+        HTML.includes('稀有度</div><div class="prose">'),
+        '★★ 凭证详情页没有「稀有度」一节',
+      );
+      t.ok(/\.voucher \.vr\[data-r="传说"\]\{[^}]*accent/.test(HTML), '★ 稀有度四档配色没落进 CSS（传说＝金）');
     });
 
     t.test('★★ 第 23 条：那句邀请在**地图最上面居中**，淡黄斜体小字', () => {
@@ -936,14 +1066,23 @@ const 玩家界面: Suite = {
         '★★ 开关是单向的（关掉那一屏后属性还留着 ⇒ 在事件台里也能拖凭证）',
       );
       // ⚠️ 那三行在 **`ui/session.ts·vouchersOf`**（不在 index.html）⇒ 判据要读那个文件。
+      // ⚠️ 2026-10-08 用户第 2 条：三类 detail 统一以**凭证自己的 `desc`** 为先（LLM 的
+      //    30~75 字说明），空才回退旧来源（事件概要 / 物品 desc）—— 旧档兼容。
       const SESS = readFileSync(new URL('../ui/session.ts', import.meta.url), 'utf8');
       t.ok(
-        SESS.includes('detail = e.summary || v.desc;'),
-        '★★ 事件类凭证没给「事件概要」（第 22 条明说「事件显事件概要」）',
+        SESS.includes('detail = v.desc || e.summary;'),
+        '★★ 事件类凭证的 desc 优先级反了（应 v.desc 为先、summary 兜底）',
       );
       t.ok(
-        SESS.includes('detail = it.desc || v.desc;'),
-        '★ 物品类凭证没给物品自己的 desc（第 22 条明说「物品/情感显 desc」）',
+        SESS.includes('detail = v.desc || it.desc;'),
+        '★ 成果类凭证的 desc 优先级反了（应 v.desc 为先、物品 desc 兜底）',
+      );
+      // ⚠️ 2026-10-08 用户第 2 条·根因修复的纪律钉：凭证卡**不带** `data-kind`（上面 ② 已钉）
+      //    ⇒ 点击识别必须按 class —— 谁改回 `el.dataset.kind`，谁就让凭证又点不开
+      //    （读出 undefined 落到 sheetItem 分支）。
+      t.ok(
+        HTML.includes("el.classList.contains('voucher') ? 'voucher' : el.dataset.kind"),
+        '★★ 凭证卡点击识别退回了 dataset.kind（它根本不带 data-kind ⇒ 凭证又点不开了）',
       );
       // ④ 已放进槽的那张不再可拖（同一张不许占两处）
       t.ok(HTML.includes("if (c.classList.contains('placed'))"), '★★ 放进槽的凭证还能再拖一张到别的槽');
@@ -1422,12 +1561,19 @@ const 玩家界面: Suite = {
       //    ① 扫全部 picks / fixPicks（页面态：放着还没交的）；
       //    ② 扫 v.waiting 的 handler ＋ participants（账面态：已提交未揭晓，
       //       点 ✔ 后 picks 已清，靠这半边知道"他还在外面"）。
+      // ⚠️ 2026-10-08 口径升级（用户报告「结算后要刷新才看到人回来」）：
+      //    ①页面态只收**活着的事件**——commit 成功后 picks[evId] 刻意保留（回看），
+      //    事件已揭晓、离开 todo/waiting/popups 三池的不得再收 ⇒ picks 循环须以
+      //    alive 集合过滤（alive 从三池构建）。距离上限从 900/1300/1600/1800 放宽
+      //    到 3000/4000：函数头的历史注释（两轮 bug 修复说明）已超千字符。
       t.ok(
-        /function deskUsedIds\(\)\{[\s\S]{0,900}for \(const id in picks\)/.test(html) &&
-        /function deskUsedIds\(\)\{[\s\S]{0,1300}for \(const fp in fixPicks\)/.test(html) &&
-        /function deskUsedIds\(\)\{[\s\S]{0,1600}arr\(v\.waiting\)/.test(html) &&
-        /function deskUsedIds\(\)\{[\s\S]{0,1800}e\.handler/.test(html),
-        '★★ deskUsedIds 退回了「只看当前开着那张卡」的旧口径（人提前回来 / 换卡手牌变化复发）',
+        /function deskUsedIds\(\)\{[\s\S]{0,3000}for \(const e of arr\(v\.todo\)\) alive\.add\(e\.id\)/.test(html) &&
+        /function deskUsedIds\(\)\{[\s\S]{0,3000}for \(const e of arr\(v\.waiting\)\) alive\.add\(e\.id\)/.test(html) &&
+        /function deskUsedIds\(\)\{[\s\S]{0,3000}for \(const e of arr\(v\.popups\)\) alive\.add\(e\.id\)/.test(html) &&
+        /function deskUsedIds\(\)\{[\s\S]{0,3000}for \(const id in picks\)[\s\S]{0,200}alive\.has\(id\)/.test(html) &&
+        /function deskUsedIds\(\)\{[\s\S]{0,4000}for \(const fp in fixPicks\)/.test(html) &&
+        /function deskUsedIds\(\)\{[\s\S]{0,4000}e\.handler/.test(html),
+        '★★ deskUsedIds 退回了旧口径：页面态未按 alive 三池过滤（结算后人不回来）或缺全局扫描（人提前回来 / 换卡手牌变化复发）',
       );
       t.ok(
         !/function deskUsedIds\(\)\{[\s\S]{0,200}detailOpen && detailOpen\.kind === 'fix'/.test(html),
@@ -1927,7 +2073,8 @@ const 玩家自建动作: Suite = {
     });
 
     t.test('★ 入口的文案是**玩家语言** —— 不写"不占条数 / 不吃 L 预算"这类系统口径', () => {
-      const HTML = readFileSync(new URL('../ui/index.html', import.meta.url), 'utf8');
+      // ⚠️ 2026-10-08 拆分适配：这些字符串在 js/ 文件里 —— 读"内联后的完整页"
+      const HTML = readPlayerPage();
       t.ok(HTML.includes('data-act="create"'), '中栏有那个「就做这件事」的按钮');
       t.ok(HTML.includes('id="createText"'), '有写那句话的输入框');
       t.ok(HTML.includes('我想做点什么'), '卡片的标题是玩家的口吻');
@@ -1955,9 +2102,16 @@ const 玩家自建动作: Suite = {
 const 前端结构守卫: Suite = {
   name: 'P5-D · 前端结构守卫（未定义变量 / 选择器冲突 / 函数重名）',
   register(t) {
-    const readHtml = () => readFileSync(new URL('../ui/index.html', import.meta.url), 'utf8');
+    // ⚠️ 2026-10-08 拆分适配：主脚本已拆成 js/ 下多个文件 —— 走模块级
+    //    readPlayerPage()（src 原位内联回来）⇒ 本套件全部 regex 断言零改动。
+    const readHtml = readPlayerPage;
     const cssOf = (H: string): string => H.slice(H.indexOf('<style>') + 7, H.indexOf('</style>'));
-    const jsOf = (H: string): string => H.slice(H.lastIndexOf('<script>') + 8, H.lastIndexOf('</script>'));
+    // ⚠️ 2026-10-08 拆分适配：旧实现 lastIndexOf 取"最后一个 script 块"（单文件时代的
+    //    主脚本）。拆分后那是 12 个块 —— 取全部块拼接才是完整 JS 源（顺序 = 加载顺序）。
+    const jsOf = (H: string): string =>
+      [...H.matchAll(/^[ \t]*<script>[ \t]*$([\s\S]*?)^[ \t]*<\/script>[ \t]*$/gm)]
+        .map((m) => m[1])
+        .join('\n');
 
     /**
      * 取一个顶层函数的函数体 —— **按大括号配对**，并跳过字符串 / 模板串 / 注释。

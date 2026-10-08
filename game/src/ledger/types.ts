@@ -10,6 +10,7 @@ import type {
   Rep5,
   Tier,
   VoucherDim,
+  VoucherRarity,
 } from '../contract/types.ts';
 // ⚠️ 同族：`RepMarks` 的形状（门槛档位）由 `rules/checkpoint.ts` 独占定义 ——
 //    账本只**记**"哪几档已经出过"，不解释"多少分算达标"。
@@ -262,6 +263,8 @@ export interface VoucherRecord {
   item: string; // 成果：物品 id
   person: string; // 共鸣：人物 id
   event: string; // 手段：事件 id（系统落账时自动绑定）
+  /** 稀有度（2026-10-08 用户裁定）：普通 / 罕见 / 珍稀 / 传说 —— 旧档缺键由读档自愈补「普通」 */
+  rarity: VoucherRarity;
   recalled_day: number | null;
 }
 
@@ -410,7 +413,12 @@ export interface Ledger {
   pending: PendingResult[];
   /** 5 */ summaries: { archive: string[]; recent: Array<{ day: number; text: string }> };
   /** 6 */ seeds: Seed[];
-  /** 7 */ divination: { ambition: string } | null;
+  /**
+   * 7 章节占卜 —— `ambition`（氛围那句，玩家可见）＋ `cards`（本章抽到的两张牌，2026-10-08 起落账）。
+   * ⚠️ `cards` 为**可选**字段：旧存档没有它 ⇒ 读作 `undefined`，UI 不显示牌（优雅降级）。
+   *    牌只描述世界氛围，**不参与欲念计算**（2026-10-05 用户裁定，见 `rules/chapter-shift.ts` 顶栏）。
+   */
+  /** 7 */ divination: { ambition: string; cards?: Array<{ name: string; reversed: boolean }> } | null;
   /** 8 */ vouchers: VoucherRecord[];
   /**
    * 9 desire —— 玩家的欲望。字段同属一组，**注入标签却分两半**（见 `ledger/project.ts`）：
@@ -496,6 +504,14 @@ export interface Ledger {
   actionPoints: { byNpc: Record<string, number> };
   /** id 发号器的水位（单调递增、永不复用） */
   idWatermark: { npc: number; it: number; loc: number; event: number };
+  /**
+   * 15 —— **游戏难度**（2026-10-08 用户第 5 条：觉醒后、第 1 天铺开前选的"叙事风味"）。
+   * `0` = 还没选（开局默认；旧存档缺这个字段时读作 0）⇒ 渲染静态头时按 1 档处理；
+   * `1 / 2 / 3` = 三档人设（热情迎合 / 规则偶尔纵容 / 严肃真实），见 `frozen/static-head.ts`。
+   * ⚠️ 只喂 `renderStaticHead`（挑段 ① 的【基调】），与 Check 的 Difficulty 概念无关；
+   *    随存档走（`snapshot` 整份 structuredClone 账本）。
+   */
+  difficulty: number;
 }
 
 export const PLAYER_ID = 'npc000';

@@ -2,9 +2,9 @@
 
 一款由大语言模型（LLM）驱动的**西幻王国叙事肉鸽游戏**。
 
-你是王国里的一位王子。塞兰王国的每一天，市集、宫廷、酒馆、神殿都会冒出一桩桩事情——它们不是写死的剧本，而是由 AI 现场生成的：换个存档、换种玩法，遇到的事件就完全不同。
+你是王国里的一位王子。塞兰王国的每一天，市集、宫廷、酒馆、神殿都会冒出一桩桩事情——但不同于传统RPG游戏，它们不是写死的剧本，你可以和LLM**共创独属于你的故事**；也不同于简单的AI文游，我们做好了优秀的游戏系统来保证**剧情的连贯合理**，和LLM的稳定输出，也设计了美观的**卡牌交互UI**来降低打字的疲劳感！
 
-游戏界面展示：
+游戏界面展示（请查询饺子醋😋）：
 
  ![](docs/screenshots/01-origin-desire.png)  
  ![](docs/screenshots/02-main-map.png) 
@@ -30,7 +30,7 @@ git clone https://github.com/AI-TRPG-Game/AI-Rougelike-Narrative-Game
 ## 准备两样东西
 
 1. **Node.js 22.18 或更新版本**：到 [nodejs.org](https://nodejs.org/) 下载安装（一路默认即可）。项目零依赖、无构建步骤，Node 直接运行 TypeScript 源码——**直接跑 `.ts` 需要 22.18+ 才默认开启**，所以版本别低于它（拿不准就装官网最新 LTS）。
-2. **DeepSeek API Key**：到 [platform.deepseek.com](https://platform.deepseek.com/) 注册并创建一个 API Key（游戏每局会真实调用模型，按量计费，玩一局的花费很低，10r以内即可）。
+2. **DeepSeek API Key**：到 [platform.deepseek.com](https://platform.deepseek.com/) 注册并创建一个 API Key（游戏每局会真实调用模型，按量计费，玩一局的花费很低，10r以内即可，甚至1r就可以体验很多剧情！）。
 
 然后配置密钥：
 

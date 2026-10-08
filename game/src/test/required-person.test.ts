@@ -26,6 +26,20 @@ import { simulate } from '../turn/simulate.ts';
 import { TOTAL_DAYS } from '../rules/clock.ts';
 import type { Suite } from './harness.ts';
 
+/**
+ * 读"玩家页的完整源"（2026-10-08 拆分适配）。
+ * index.html 主脚本已拆成 js/ 下多个文件 —— 这里把每个 script src **原位内联回来**，
+ * 让对整页源码做 regex 的断言零改动（与 ui.test.ts 的 readPlayerPage 同款）。
+ */
+const readPlayerPage = (): string => {
+  const dir = new URL('../ui/', import.meta.url);
+  const html = readFileSync(new URL('index.html', dir), 'utf8');
+  return html.replace(/<script src="js\/([\w.-]+\.js)"><\/script>/g, (_all, name: string) => {
+    const code = readFileSync(new URL('js/' + name, dir), 'utf8');
+    return `<script>\n${code}\n</script>`;
+  });
+};
+
 /** 被指定的那个人 —— 只是「某个人」，换谁都不影响这几条断言 */
 const HIM = 'npc002';
 /** 另一个可派遣的人（用来验「只包含别人 ⇒ 拦」与「带上帮手 ⇒ 不拦」） */
@@ -225,7 +239,8 @@ export const suites: Suite[] = [
       });
 
       t.test('★ 卡面印「非 X 不可」＋ `warn`（与 `dispatchable` 同一组：都是"谁去做"的硬约束）', () => {
-        const html = readFileSync(new URL('../ui/index.html', import.meta.url), 'utf8');
+        // ⚠️ 2026-10-08 拆分适配：这颗 tag 在 js/ 文件里 —— 读"内联后的完整页"
+        const html = readPlayerPage();
         t.ok(html.includes("tag('非 ' + e.requiredPerson.name + ' 不可', 'warn')"), '那颗 tag 必须存在');
         // ⚠️ 2026-10-05：判据从「`e.requiredPerson` 首次出现」改成「**那颗 tag 本身**的位置」。
         //    派遣窗口里新增了 `reqLine`（他调不动时的一行死局说明），它也读 `e.requiredPerson`
@@ -237,7 +252,8 @@ export const suites: Suite[] = [
       });
 
       t.test('视图字段名与卡面用的字段名**字字一致**（防"两处各起一个名"）', () => {
-        const html = readFileSync(new URL('../ui/index.html', import.meta.url), 'utf8');
+        // ⚠️ 2026-10-08 拆分适配：同上 —— 读"内联后的完整页"
+        const html = readPlayerPage();
         const sess = readFileSync(new URL('../ui/session.ts', import.meta.url), 'utf8');
         t.ok(sess.includes('requiredPerson:'), '会话层给的是 requiredPerson');
         t.ok(html.includes('e.requiredPerson'), 'UI 读的是同一个名字');

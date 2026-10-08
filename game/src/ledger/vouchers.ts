@@ -21,7 +21,7 @@
 //   ① **每次结算最多收回 1 条**—— 多写的丢弃并记一条 problem；
 //   ② `the_proper_way` **永不 recall**（事件既成）—— 写了也丢；
 //   ③ 同一批里**同维同绑定同描述**的重复产出直接丢弃 —— 否则多轮场景会把同一条凭证刷成 5 份。
-import { VOUCHER_ACHIEVEMENT, VOUCHER_DIMS, VOUCHER_RESONANCE, VOUCHER_WAY, type VoucherDim } from '../contract/types.ts';
+import { VOUCHER_ACHIEVEMENT, VOUCHER_DIMS, VOUCHER_RARITIES, VOUCHER_RESONANCE, VOUCHER_WAY, type VoucherDim, type VoucherRarity } from '../contract/types.ts';
 import { normalizeTempId, parseTempId } from '../contract/tempids.ts';
 import type { Batch } from './batch.ts';
 import type { Ledger, RecallRequest, VoucherRecord } from './types.ts';
@@ -72,6 +72,8 @@ interface RawVoucher {
   item: string;
   person: string;
   desc: string;
+  /** 稀有度（2026-10-08）—— 模型没给 / 给的不是四档之一 ⇒ 落「普通」（不毁掉整条凭证） */
+  rarity: VoucherRarity;
 }
 
 /** 模型给的是**未校验的任意形状** ⇒ 逐字段自取、缺省为空，任一字段不合法就在上层丢弃 */
@@ -81,12 +83,16 @@ function readOne(x: unknown): RawVoucher | null {
   const s = (k: string): string => (typeof o[k] === 'string' ? (o[k] as string).trim() : '');
   const dim = s('dim');
   const action = s('action');
+  const rarity = s('rarity');
   return {
     dim: (VOUCHER_DIMS as readonly string[]).includes(dim) ? (dim as VoucherDim) : '',
     action: action === 'produce' || action === 'recall' ? action : '',
     item: s('item'),
     person: s('person'),
     desc: s('desc'),
+    // ⚠️ 稀有度**不因缺省丢弃整条**：凭证本身是重要资产，四档之外的值 / 缺键一律落「普通」
+    //    （schema 已把四档写进 enum；这里兜的是旧档与少填的模型输出）。
+    rarity: (VOUCHER_RARITIES as readonly string[]).includes(rarity) ? (rarity as VoucherRarity) : '普通',
   };
 }
 
@@ -170,6 +176,7 @@ export function applyVouchers(ledger: Ledger, raw: unknown, batch: Batch, ctx: V
         item: '',
         person: '',
         event: '',
+        rarity: v.rarity,
         recalled_day: null,
       };
       if (v.dim === VOUCHER_ACHIEVEMENT) {

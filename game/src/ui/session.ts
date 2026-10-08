@@ -25,6 +25,7 @@ import {
   VOUCHER_RESONANCE,
   VOUCHER_WAY,
   type VoucherDim,
+  type VoucherRarity,
 } from '../contract/types.ts';
 import { fakeBrain } from '../fixtures/fake.ts';
 import { initialLedger } from '../ledger/initial.ts';
@@ -56,7 +57,7 @@ import { CARRY_CAP, evalGates, GATE_LANE, gatesOf, type GateLane } from '../rule
 import { makeRng, type Rng } from '../rules/rng.ts';
 import { SCENE_ROUND_CAP } from '../rules/scene.ts';
 import type { DrawnCard } from '../rules/tarot.ts';
-import { BASE_ACTION_POINTS } from '../rules/x.ts';
+import { availableToday, BASE_ACTION_POINTS } from '../rules/x.ts';
 import type { Brain } from '../turn/brain.ts';
 import { createEvent as createUserEvent } from '../turn/create.ts';
 import { closeGame, terminateIfOver, writeEnding } from '../turn/ending.ts';
@@ -259,6 +260,8 @@ export interface UiVoucher {
   title: string;
   /** **卡片背面的描述** —— `item.desc` / 凭证 `desc` / 事件 `summary` */
   detail: string;
+  /** 稀有度（2026-10-08 用户裁定）：普通 / 罕见 / 珍稀 / 传说 —— 卡面与详情页都显示 */
+  rarity: VoucherRarity;
 }
 
 export interface UiScene {
@@ -345,6 +348,12 @@ export interface UiView {
    *    而氛围是那一整章的底色，玩家随时该看得到。还没占卜过 ⇒ null。
    */
   ambience: string | null;
+  /**
+   * 本章占卜抽到的两张牌（牌名＋正逆位）—— 2026-10-08 起随氛围落账、玩家可见（签文旁展示）。
+   * 旧档（`cards` 落账之前存的）没有 ⇒ null，签文旁不显示牌（优雅降级）。
+   * ⚠️ 它只描述世界氛围，**不参与欲念计算**（2026-10-05 用户裁定）。
+   */
+  divCards: Array<{ name: string; reversed: boolean }> | null;
   /**
    * **序幕（`day 0` · 界面显示「Day 0」）还没读完** —— 不在序幕 / 已走完 ⇒ `null`。
    *
@@ -649,13 +658,14 @@ function sceneEventOf(l: Ledger, id: string): GameEvent | undefined {
  *    只把已挂着的那条标上日期）⇒ 被收回的凭证**不该再出现在手牌区**，否则玩家会拖一张
  *    已经失效的卡进格子、而服务端把它当有效的那条处理。
  *
- * ⚠️ **三种维度的正面/背面来源各不相同**（用户裁定第 22 条：「物品/情感显 `desc`、
- *    事件显**事件概要**」）：
- *    | 维度 | 正面 `title` | 背面 `detail` |
+ * ⚠️ **正面来源按维度各不相同；背面（`detail`）统一以凭证自己的 `desc` 为先**
+ *    （2026-10-08 用户第 2 条：点开凭证卡读的应是 LLM 结算时写的 30~75 字说明）；
+ *    凭证 `desc` 为空才回退旧来源（旧档兼容）：
+ *    | 维度 | 正面 `title` | 背面 `detail`（⇐ 回退） |
  *    | --- | --- | --- |
- *    | 成果（物品） | 物品名 | **物品自己的 `desc`** |
- *    | 手段（事件） | 事件标题 | **事件的 `summary`**（概要，不是正文） |
- *    | 共鸣（人物） | 人物名 | **凭证自己的 `desc`**（那个人给过什么认可） |
+ *    | 成果（物品） | 物品名 | **凭证 `desc`** ⇐ 物品自己的 `desc` |
+ *    | 手段（事件） | 事件标题 | **凭证 `desc`** ⇐ 事件的 `summary`（概要，不是正文） |
+ *    | 共鸣（人物） | 人物名 | **凭证 `desc`**（那个人给过什么认可） |
  *
  * ⚠️ **卡牌 id 用 `v:{dim}:{绑定id}` 而不是凭证记录的下标** —— 前端拖拽要一个稳定串，
  *    而 `VoucherRecord` 没有自己的 id 字段（它是数组里的一项）。
@@ -677,7 +687,9 @@ function vouchersOf(l: Ledger): UiVoucher[] {
       const it = l.entities.items.find((x) => x.id === v.item);
       if (it) {
         title = it.name;
-        detail = it.desc || v.desc;
+        // ⚠️ 2026-10-08（用户第 2 条）：detail 以**凭证自己的 `desc`** 为先（LLM 的 30~75 字说明），
+        //    空则回退物品 `desc`（旧档兼容 —— 旧档的凭证 desc 本就是成就一句话）。
+        detail = v.desc || it.desc;
       }
     } else if (v.dim === VOUCHER_RESONANCE) {
       const p = l.entities.people.find((x) => x.id === v.person);
@@ -687,8 +699,9 @@ function vouchersOf(l: Ledger): UiVoucher[] {
         ?? l.events.hidden.find((x) => x.id === v.event);
       if (e) {
         title = e.title;
-        // ⚠️ 事件类给的是**概要**（`summary`），不是 `content` —— 正文可能有几百字，卡面放不下
-        detail = e.summary || v.desc;
+        // ⚠️ 2026-10-08（用户第 2 条）：同上 —— 凭证 `desc` 为先；为空才回退**概要**（`summary`），
+        //    绝不用 `content` —— 正文可能有几百字，卡面放不下。
+        detail = v.desc || e.summary;
       }
     }
     out.push({
@@ -697,6 +710,8 @@ function vouchersOf(l: Ledger): UiVoucher[] {
       dimLabel: DIM_LABEL[v.dim],
       title: title || '（无名）',
       detail,
+      // ⚠️ 旧档的凭证没有 rarity 键 ⇒ 兜「普通」（读档自愈也会补，这里双保险）
+      rarity: v.rarity ?? '普通',
     });
   }
   return out;
@@ -906,6 +921,15 @@ export class Session {
     //    ⚠️ 以物品的 holder 为主事实（与 commitBatch 同一条纪律）：能对齐就对齐，
     //      对不齐（人不存在 / 携带位满 / 引用悬空）一律放回手牌区或清掉引用 —— 不静默留脏。
     const ledger = structuredClone(snap.ledger);
+    // ⚠️ 2026-10-08（用户第 5 条）：旧档没有 `difficulty` 键（strip-only 不校验、缺键不报错）
+    //    ⇒ 读作 0（"还没选"）。`renderStaticHead` 对 0 一律按 1 档渲染 —— 旧档的叙事
+    //    风味与改版前一致，不会炸、也不会悄悄换口味。
+    if (ledger.difficulty === undefined || ledger.difficulty === null) ledger.difficulty = 0;
+    // ⚠️ 2026-10-08（用户第 6 条）：旧档的凭证没有 `rarity` 键 ⇒ 读档时补「普通」——
+    //    与 difficulty 同一条自愈纪律：新键只在读档处归一一次，渲染层不再各判各的。
+    for (const v of ledger.vouchers) {
+      if (v.rarity === undefined || v.rarity === null) v.rarity = '普通';
+    }
     for (const it of ledger.entities.items) {
       if (it.holder === '') it.holder = null;
       if (it.holder === null) continue;
@@ -1110,6 +1134,30 @@ export class Session {
       `判据：「${k.proposition}」`,
       `点亮优势：${adv.length === 0 ? '无（六项一样平庸）' : adv.join('、')}`,
     ];
+    this.note(log);
+    this.steps += 1;
+    return { ok: true, error: '', notice: '', log, ended: false };
+  }
+
+  /**
+   * **游戏难度（叙事风味）选择**（2026-10-08 用户第 5 条）—— 觉醒刚完成、第 1 天
+   * 还没铺开的那一步（`/api/difficulty`）。落账 `ledger.difficulty`，喂
+   * `renderStaticHead` 挑三档人设；与欲望选择同一条纪律：**一次性**、越界就挡（回人话）。
+   * ⚠️ 纯会话态一次动作：零 LLM、零事件 —— 只写一个数。离线（fake brain）路径
+   *    照样能走、字段照落账（假 brain 不读它）。
+   */
+  pickDifficulty(level: number): ActionResult {
+    if (level !== 1 && level !== 2 && level !== 3) {
+      return {
+        ok: false,
+        error: `没有第 ${level} 档难度（只有 1 / 2 / 3）`,
+        notice: '',
+        log: [],
+        ended: false,
+      };
+    }
+    this.ledger.difficulty = level;
+    const log = [`选定游戏难度：第 ${level} 档（${['', '热情迎合', '规则偶尔纵容', '严肃真实'][level]}）`];
     this.note(log);
     this.steps += 1;
     return { ok: true, error: '', notice: '', log, ended: false };
@@ -1851,7 +1899,10 @@ export class Session {
       // ⚠️ 与 `gates.ts` 判属性门槛**同一个函数**（见上面类型上的说明）
       effectiveAttrs: effectiveAttrsOf(l, p),
       away: isAway(p.id, l, l.clock.day),
-      ap: p.id === PLAYER_ID ? remainingToday(l) : (l.actionPoints.byNpc[p.id] ?? BASE_ACTION_POINTS),
+      // ⚠️ 2026-10-08 起 NPC 的容量 = `availableToday`（时间流速余额 × 今日已承诺 取小）：
+      //    手牌区闲置者的行动力也随拨钟一起掉（用户裁定「拨的是所有人的时间」），
+      //    已接的活在办期间占「今日已承诺」那份 —— 卡面数字与闸门 ② 同源。
+      ap: availableToday(l, p, l.clock.day),
       attrs: { ...p.attrs },
       in_your_eyes: p.in_your_eyes,
       openness: p.openness,
@@ -1991,6 +2042,7 @@ export class Session {
         kit: l.desire.kit ?? 0,
       },
       ambience: l.divination?.ambition ?? null,
+      divCards: l.divination?.cards ?? null,
       // ⚠️ 只看 live 里**第一条待处理**（2026-10-08 平铺后"当前在读"不再唯一）——
       //    它是 `needsChoice`（站在末条上）的判据，也是"还剩几条"的唯一来源
       //    （`prologuePending` 与它同源同一条判据）。`openingLaid` 给 UI 的

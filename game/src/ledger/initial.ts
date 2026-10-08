@@ -320,6 +320,10 @@ export function emptyLedger(): Ledger {
     gates: [],
     actionPoints: { byNpc: {} },
     idWatermark: initialWatermark(),
+    // ⚠️ 2026-10-08（用户第 5 条）：游戏难度 —— 0 = 还没选（觉醒后由玩家挑 1~3 档）。
+    //    顶栏"每个键都要显式写出来"的警告同样适用于它：漏了它，消费方
+    //    （`renderStaticHead`）在读档自愈补齐之前读到 undefined。
+    difficulty: 0,
   };
 }
 
@@ -327,10 +331,11 @@ export function emptyLedger(): Ledger {
  * 开局账本：**玩家 ＋ 预置 10 人 ＋ 9 处地点 ＋ 2 件初始物品**。
  *
  * 数值口径逐条对上《设定.md·序幕占位数值》：
- *   六维全 5 · 金币 5 · 权势 5（其余声望 0）· HP / SAN 3/3 · 欲念 30。
- * 其中**金币写 0** 是**有意**的：那句「金币 5」在文档里自带注解——「即**进入第 1 天时
+ *   六维全 5 · 权势 5（其余声望 0）· HP / SAN 3/3 · 欲念 30。
+ * 其中**金币写 0** 是**有意**的：「金币」在文档里自带注解——「即**进入第 1 天时
  * 发的那次周例钱**……不是额外的一笔」⇒ 它由 `turnOver` 在第 1 天发放
- * （`rules/clock.ts·payrollForDay(1) === 5`），开局本身不预置，否则第 1 天会变成 10。
+ * （`rules/clock.ts·payrollForDay(1) === 20`，2026-10-08 用户裁定由 5 提到 20），
+ * 开局本身不预置，否则第 1 天会变成 40。
  * 其余各项没有这样的发放机制（序幕 `delta` 一律留空），所以必须在这里写死。
  */
 export function initialLedger(): Ledger {
@@ -412,7 +417,8 @@ export function initialLedger(): Ledger {
       // 「无数值 · 剧情钩子」⇒ `attr_bonus` 空数组 ⇒ 品级 = 其他
       kind: '特殊物品',
       name: '旧游记',
-      desc: '一本边角翻得起毛的旧游记，讲海外诸邦风物',
+      // 2026-10-08 用户裁定：说明补全那句带引号的"有趣"知识
+      desc: '一本边角翻得起毛的旧游记，讲海外诸邦风物，也许上面会有一些“有趣”的知识？',
       attr_bonus: [],
       holder: null,   // ⚠️ 2026-10-08（用户裁定·无人携带）：同上
       consumed: false,

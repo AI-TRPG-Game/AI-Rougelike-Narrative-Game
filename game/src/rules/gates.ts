@@ -16,7 +16,7 @@
 import type { GateCode, GateResult, Ledger, Person } from '../ledger/types.ts';
 import { PLAYER_ID, findPerson, isAvailable, player } from '../ledger/types.ts';
 import { nowOf, reached, remainingToday } from './clock.ts';
-import { BASE_ACTION_POINTS } from './x.ts';
+import { availableToday, BASE_ACTION_POINTS } from './x.ts';
 
 /** 每人携带位 */
 export const CARRY_CAP = 4;
@@ -74,7 +74,9 @@ export function evalGates(input: GateInput): GateResult[] {
         // ⚠️ 玩家的时间预算记在 `clock.usedToday`（闸门 ① 专管），**不在 `byNpc` 里**。
         //    这里若不排除玩家，就会拿一个"从来没人重置过"的 `byNpc['npc000']` 幽灵计数去卡他。
         if (p.id === PLAYER_ID) return false;
-        const left = l.actionPoints.byNpc[p.id] ?? BASE_ACTION_POINTS;
+        // ⚠️ 2026-10-08 起：容量是**时间流速 + 今日已承诺**的合成读数（`availableToday`）——
+        //    拨时间全员一起掉（闲置者也掉），排布占的是「今日已承诺」那份。
+        const left = availableToday(l, p, today);
         return singleDay ? left < ev.cost : left <= 0;
       };
       const bad = parts.filter(lacks);
@@ -85,14 +87,14 @@ export function evalGates(input: GateInput): GateResult[] {
               true,
               singleDay
                 ? `${parts.length} 人当日剩余均 ≥ 处理时长 ${ev.cost}`
-                : `${parts.length} 人当日均还能启程（跨天事件，启程即扣光当日剩余）`,
+                : `${parts.length} 人当日均还能启程（跨天事件，占今日剩余）`,
             )
           : g(
               'PARTICIPANT_BUDGET',
               false,
               bad
                 .map((p) => {
-                  const left = l.actionPoints.byNpc[p.id] ?? BASE_ACTION_POINTS;
+                  const left = availableToday(l, p, today);
                   return singleDay
                     ? `${p.name}(${p.id}) 剩余 ${left} < 处理时长 ${ev.cost}`
                     : `${p.name}(${p.id}) 剩余 ${left} ⇒ 今天已无法启程`;

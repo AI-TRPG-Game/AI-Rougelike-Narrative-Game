@@ -423,6 +423,12 @@ async function route(pathname: string, body: Record<string, unknown>): Promise<A
     case '/api/desire/pick':
       return await withSession((s) => s.pickDesire(num(body, 'kit', -1), ids(body, 'advantages')));
 
+    // ⚠️⚠️ 2026-10-08（用户第 5 条）：**难度（叙事风味）选择** —— 玩家点完优势属性、
+    //    第 1 天还没铺开前的那一下。纯会话态一次动作（`Session.pickDifficulty` 零 LLM、
+    //    零事件），落账 `ledger.difficulty` ⇒ `renderStaticHead` 据此挑三档人设，随存档走。
+    case '/api/difficulty':
+      return await withSession((s) => s.pickDifficulty(num(body, 'level', 0)));
+
     case '/api/arrange':
       return await withSession((s) =>
         s.arrange({
@@ -581,7 +587,8 @@ function devRev(): number {
   bump(PAGE);
   try {
     for (const rel of fs.readdirSync(SRC, { recursive: true, encoding: 'utf8' })) {
-      if (rel.endsWith('.ts') || rel.endsWith('.html')) bump(path.join(SRC, rel));
+      // `.js`：index.html 拆出的经典脚本（ui/js/*.js）—— 不收它们，改脚本时页面不会自刷
+      if (rel.endsWith('.ts') || rel.endsWith('.html') || rel.endsWith('.js')) bump(path.join(SRC, rel));
     }
   } catch {
     // 目录读不到 ⇒ 只认 PAGE 一个（退化成"只跟 index.html"，不会把服务弄挂）
@@ -608,6 +615,26 @@ const server = http.createServer((req, res) => {
         res.end(html);
       } catch (e) {
         sendJson(res, 500, { ok: false, error: `读不到 ${PAGE}：${e instanceof Error ? e.message : String(e)}` });
+      }
+      return;
+    }
+
+    // ── 拆分后的脚本文件（ui/js/*.js）：静态直发 ─────────────────────────
+    // 经典 `<script src>` 按 src 顺序同步执行 ⇒ 拆分页与单文件页的运行语义一致。
+    // ⚠️ 文件名白名单（`^[\w.-]+\.js$`）：绝不让 `..` 把路径带出 js/ 目录；
+    //    `no-store` 与页面同一口径 —— 改完脚本刷新即生效，不跟浏览器缓存搏斗。
+    if (req.method === 'GET' && url.pathname.startsWith('/js/')) {
+      const rel = url.pathname.slice('/js/'.length);
+      if (!/^[\w.-]+\.js$/.test(rel)) {
+        sendJson(res, 404, { ok: false, error: `不认识的文件：${rel}` });
+        return;
+      }
+      try {
+        const code = fs.readFileSync(path.join(HERE, 'js', rel), 'utf8');
+        res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' });
+        res.end(code);
+      } catch {
+        sendJson(res, 404, { ok: false, error: `读不到 js/${rel}` });
       }
       return;
     }

@@ -170,6 +170,8 @@ export interface VoucherDecl {
   person: string;
   /** 这条凭证的【描述】（给玩家在最终清单里看的说明）。`recall` 时填撤回原因，可空串。 */
   desc: string;
+  /** 【稀有度】（2026-10-08 用户裁定）：普通 / 罕见 / 珍稀 / 传说 —— `VOUCHER_RARITIES` 四档之一 */
+  rarity: VoucherRarity;
 }
 
 export type Vouchers = VoucherDecl[];
@@ -177,6 +179,13 @@ export type Vouchers = VoucherDecl[];
 /** 凭证三维 —— 必须与 `schema/defs.ts` 的 `Vouchers.items.dim` 枚举**逐字一致**（同 `ITEM_KINDS` 的镜像纪律） */
 export const VOUCHER_DIMS = ['the_great_achievement', 'the_proper_way', 'the_resonance_of_the_other'] as const;
 export type VoucherDim = (typeof VOUCHER_DIMS)[number];
+
+/**
+ * 凭证的四个**稀有度**（2026-10-08 用户裁定）—— 同 `Vouchers.items.rarity` 枚举逐字一致。
+ * ⚠️ 与维度一样走「具名常量 + 镜像纪律」：schema、落账、显示全从这一份取，不各抄一遍。
+ */
+export const VOUCHER_RARITIES = ['普通', '罕见', '珍稀', '传说'] as const;
+export type VoucherRarity = (typeof VOUCHER_RARITIES)[number];
 
 /**
  * 三个维度的**具名常量** —— 由 `VOUCHER_DIMS` 的下标取出（不是另抄一遍字面量）

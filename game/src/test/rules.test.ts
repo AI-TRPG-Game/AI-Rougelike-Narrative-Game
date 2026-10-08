@@ -471,16 +471,16 @@ export const suites: Suite[] = [
   {
     name: '时间轴与时钟 · 《规则.md》§一（精度 = 行动点）· §四',
     register(t) {
-      t.test('周例钱：第 1 / 8 / 15 / 22 天各 5（全场共 4 次 = 20）', () => {
-        t.eq(payrollForDay(1), 5);
+      t.test('周例钱：第 1 / 8 / 15 / 22 天各 20（全场共 4 次 = 80；2026-10-08 用户裁定 5→20）', () => {
+        t.eq(payrollForDay(1), 20);
         t.eq(payrollForDay(7), 0);
-        t.eq(payrollForDay(8), 5);
-        t.eq(payrollForDay(15), 5);
-        t.eq(payrollForDay(22), 5);
+        t.eq(payrollForDay(8), 20);
+        t.eq(payrollForDay(15), 20);
+        t.eq(payrollForDay(22), 20);
         t.eq(payrollForDay(28), 0);
         let total = 0;
         for (let d = 1; d <= 28; d++) total += payrollForDay(d);
-        t.eq(total, 20);
+        t.eq(total, 80);
       });
 
       t.test('时间点算术：绝对点数 = day × 4 + used，两种写法等价', () => {

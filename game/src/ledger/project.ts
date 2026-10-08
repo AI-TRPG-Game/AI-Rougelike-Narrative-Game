@@ -36,6 +36,13 @@ export const FIELD_TAGS: Record<keyof Ledger, InjectTag> = {
   actionPoints: '永不',
   idWatermark: '永不',
   /**
+   * ⚠️ **2026-10-08 用户第 5 条（难度选择）**：`difficulty` 只喂 `renderStaticHead` ——
+   * 装配 system 段 ① 时**按档挑人设**（`staticProseOf`），不进任何一次调用的 user ③ 块，
+   * 也不该让模型在上下文里看见"难度"这个概念本身 ⇒ 标 永不（与 `ending`「只给 UI」同族：
+   * 那行是"只给 UI"，这行是"只给 system 装配"）。
+   */
+  difficulty: '永不',
+  /**
    * ⚠️ **2026-09-20 补**：`repMarks`（每格声望的 10 / 15 / 20 **哪几档已经出过种**）
    * 是 P4-E 加进账本的顶层字段，但**本表漏了它一行** —— 于是它不属于任何一个组：
    * `groupsWithTag` 四个组都查不到它，`projectionPlan().never` 也不列它。

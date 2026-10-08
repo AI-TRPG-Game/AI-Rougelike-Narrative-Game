@@ -283,7 +283,7 @@ const 写入侧: Suite = {
 
       const l = await playTo(l0, 9);
 
-      t.eq(l.scalars.gold, g0, '★ 金币没动（序幕无支出、也无收入 —— 「金币 5」是第 1 天的周例钱）');
+      t.eq(l.scalars.gold, g0, '★ 金币没动（序幕无支出、也无收入 —— 「金币 20」是第 1 天的周例钱）');
       t.eq(JSON.stringify(l.scalars.rep), rep0, '★ 声望没动（档 A 的 delta 全是空的）');
       t.eq(JSON.stringify(playerAttrs(l)), attrs0, '★ 六维还是占位全 5（真实值由末条的 `opening` 产出）');
       t.eq(l.entities.people.map((p) => `${p.hp}/${p.san}`).join(','), hp0, '★ HP / SAN 没动');
@@ -433,7 +433,7 @@ const 会话层接线: Suite = {
       t.deep(v.prologue, { seq: 1, total: 9, day: 1, remaining: 8, openingLaid: false },
         '★ 视图要能告诉玩家"在读第几条、末条出现了没"（按钮随 `openingLaid` 消失）');
       t.eq(v.popups[0].title, '朝会', '第 1 条是朝会');
-      t.eq(v.gold, 0, '序幕不发钱 —— 「金币 5」是进入第 1 天那次周例钱');
+      t.eq(v.gold, 0, '序幕不发钱 —— 「金币 20」是进入第 1 天那次周例钱');
       t.eq(v.desire.value, 30, '序幕占位欲念 30');
       t.eq(v.desire.manifesto, '', '还没开局');
       t.eq(v.todo.length, 0, '序幕没有待办（全档 A）');
@@ -513,7 +513,7 @@ const 会话层接线: Suite = {
       t.eq(v.day, 1, '★ 序幕 → 第 1 天走的是同一个「进下一天」口子（**不走 A/B/C 那条时间通道**）');
       t.eq(v.phase, '正文', '阶段切到正文');
       t.eq(v.chapter, 1, '第 1 天在第 1 章');
-      t.eq(v.gold, 5, '《设定.md》：金币 5 = 进入第 1 天发的那次周例钱');
+      t.eq(v.gold, 20, '《设定.md》：周例钱（2026-10-08 由 5 提到 20）= 进入第 1 天发的那次');
       t.eq(v.usedToday, 0, '时间读数归零');
       t.eq(v.ambience !== null, true, '★ 第 1 天本身就是占卜日 ⇒ 当场该有"本周氛围"');
       t.eq(
@@ -525,12 +525,43 @@ const 会话层接线: Suite = {
       t.ok(!s.ledger.events.live.some((e) => e.id === 'e1' && e.status === '待处理'), '序幕事件都已结算');
     });
 
-    t.test('`skipPrologue` ⇒ 与 P4-D 之前逐字同构（day 1 / 金币 5 / 欲念 30 / 命题非空）', async () => {
+    // ── ★ 2026-10-08 用户第 5 条：觉醒刚完成、第 1 天还没铺开的「游戏难度」选择 ──
+    t.test('★ 难度选择：越界拒（人话）· 三档落账 · 存档往返不丢 · 旧档缺键自愈为 0', async () => {
+      const s = await Session.start({ seed: 20260921 });
+      t.eq(s.ledger.difficulty, 0, '开局 = 还没选（0）');
+
+      // 越界一律拒（0 = "还没选" 也不是一档），且一个数都不落
+      for (const bad of [0, 4, 99]) {
+        const r = s.pickDifficulty(bad);
+        t.eq(r.ok, false, `第 ${bad} 档不是档 ⇒ 拒`);
+        t.ok((r.error || '').includes('档'), `错因要是人话（说清"没有这一档"）：${r.error}`);
+      }
+      t.eq(s.ledger.difficulty, 0, '拒了就不落账（还是 0）');
+
+      // 三档都落得了账（前端弹窗点哪档发哪个数）
+      for (const lv of [1, 2, 3]) {
+        const r = s.pickDifficulty(lv);
+        t.ok(r.ok, `第 ${lv} 档落账：${r.error}`);
+        t.eq(s.ledger.difficulty, lv, `账本 difficulty = ${lv}`);
+      }
+
+      // 存档往返：难度是**整局**的事实（选一次定一局的叙事风味）⇒ 读档必须原样带回
+      const snap = JSON.parse(JSON.stringify(s.snapshot()));
+      const b = Session.restore(snap, fakeBrain());
+      t.eq(b.ledger.difficulty, 3, '★ 读档回来难度还在（3）');
+
+      // 旧档（difficulty 还不存在于那个时代）⇒ restore 自愈成 0（按档 1 渲染，不炸）
+      delete (snap.ledger as Record<string, unknown>).difficulty;
+      const c = Session.restore(snap, fakeBrain());
+      t.eq(c.ledger.difficulty, 0, '★ 旧档缺键 ⇒ 自愈为 0（renderStaticHead 兜底按档 1）');
+    });
+
+    t.test('`skipPrologue` ⇒ 与 P4-D 之前逐字同构（day 1 / 金币 20 / 欲念 30 / 命题非空）', async () => {
       const s = await Session.start({ seed: 20260921, skipPrologue: true });
       const v = s.view();
       t.eq(v.day, 1, '直接开在第 1 天');
       t.eq(v.prologue, null, '视图不报序幕');
-      t.eq(v.gold, 5, '周例钱已发');
+      t.eq(v.gold, 20, '周例钱已发');
       t.eq(v.desire.value, 30, '欲念 30');
       t.ok(v.desire.proposition !== '', '明着翻过一次牌');
       t.eq(v.popups.length, 0, '一条序幕弹窗都没有');

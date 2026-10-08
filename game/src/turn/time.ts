@@ -25,6 +25,7 @@ import { applyVouchers } from '../ledger/vouchers.ts';
 import { consumeOneShots } from '../rules/ability.ts';
 import { dialRange, nowOf, reached, remainingToday } from '../rules/clock.ts';
 import { desireDelta } from '../rules/desire.ts';
+import { BASE_ACTION_POINTS } from '../rules/x.ts';
 import type { Rng } from '../rules/rng.ts';
 import type { Brain } from './brain.ts';
 import { enterDay, settleExpired, turnOver } from './t0.ts';
@@ -185,6 +186,19 @@ export async function pushTime(
     const step = Math.min(left, remainingToday(l));
     l.clock.usedToday += step;
     left -= step;
+
+    // ⚠️⚠️ 2026-10-08 用户裁定：「玩家每次拨时间，拨的是**所有人的时间**」⇒ 时间流速全表一致：
+    //    手牌区**闲置者**的容量也一起流逝（含场景收尾的被动拨时 —— A/B/C 三通道全走本函数，
+    //    改这一处即全覆盖）。排布**不再**即时扣容量（旧口径），
+    //    「一人一天 ≤ 4 点」的派遣平衡由 `rules/x.ts·availableToday`（今日已承诺）把关。
+    //    ⚠️ 玩家不进 `byNpc`：他的预算就是上面那行 `usedToday`。
+    for (const p of l.entities.people) {
+      if (p.id === PLAYER_ID) continue;
+      l.actionPoints.byNpc[p.id] = Math.max(
+        0,
+        (l.actionPoints.byNpc[p.id] ?? BASE_ACTION_POINTS) - step,
+      );
+    }
 
     // 时间走到哪，就结算到哪 —— 顺序不能反：先揭晓（用满当天时 now = 当天末尾），再判过期
     l = revealDue(l, nowOf(l), log, revealed);
