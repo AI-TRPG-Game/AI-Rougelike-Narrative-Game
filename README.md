@@ -6,11 +6,10 @@
 
 游戏界面展示：
 
-| **开局**：从六句宣言里挑一句，决定你这 28 天的欲望 | **主界面**：地图上的事件、手牌区的物品与随从 |
-| --- | --- |
-| ![开局：原初欲望的觉醒](docs/screenshots/01-origin-desire.png) | ![主界面：事件地图与手牌区](docs/screenshots/02-main-map.png) |
-| **人物卡**：六维属性与人物小传，随事件实时解锁 | **结局**：一周目按四条叙事维度结算 |
-| ![人物卡：奥德里克三世](docs/screenshots/03-character-card.png) | ![结局：陨命](docs/screenshots/04-ending.png) |
+ ![](docs/screenshots/01-origin-desire.png)  
+ ![](docs/screenshots/02-main-map.png) 
+ ![](docs/screenshots/03-character-card.png)  
+ ![](docs/screenshots/04-ending.png) 
 
 ## 玩法简介
 
