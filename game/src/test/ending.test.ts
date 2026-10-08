@@ -74,10 +74,10 @@ export const suites: Suite[] = [
         t.eq(names.filter((n) => n === '沉溺').length, 2, '沉溺既是「火烧到了底」也是「要到手之后」');
       });
 
-      t.test('★ 唯一系统插槽：只有 ①②③④ 带「第〔N〕天」，⑤⑥⑦ 恒「第 28 天」', () => {
+      t.test('★ 唯一系统插槽：②③④ 带「第〔N〕天」（① 2026-10-08 改写后不提天数），⑤⑥⑦ 恒「第 28 天」', () => {
         t.deep(
           FAILURE_LINES.filter((f) => f.daySlot).map((f) => f.row),
-          [1, 2, 3, 4],
+          [2, 3, 4],
         );
         for (const f of FAILURE_LINES) {
           t.eq(f.text.includes('〔N〕'), f.daySlot, `第 ${f.row} 行「${f.title}」的插槽与 daySlot 不一致`);
@@ -177,10 +177,15 @@ export const suites: Suite[] = [
       });
 
       t.test('★ 提前终结的话术当场填「第〔N〕天」—— 落账的就是玩家会读到的那份', () => {
-        const e = instantEndingOf(kill('hp'))!;
+        // ⚠️ 2026-10-08 起 row1（陨命）话术按用户改写后**不含**天数插槽 ⇒ 换 row2（疯癫）
+        //    验证同一条纪律：「〔N〕当场填、玩家读到的就是填好的那份」。
+        const e = instantEndingOf(kill('san'))!;
         t.eq(e.day, 5);
         t.ok(!e.text!.includes('〔N〕'), '插槽必须已填');
         t.ok(e.text!.includes('第 5 天'), `话术里应出现实际天数：${e.text!.split('\n')[0]}`);
+        // row1 改写后的契约：没有插槽 ⇒ 落账的与总表原文**逐字相同**（fillDaySlot 空操作）
+        const r1 = instantEndingOf(kill('hp'))!;
+        t.eq(r1.text, FAILURE_LINES[0].text, '★ 2026-10-08：陨命新话术不含插槽，落账逐字等于原文');
       });
     },
   },

@@ -75,7 +75,11 @@ function playEnding(e, opts){
   el.innerHTML =
     '<div class="es-kicker">' + esc(kicker) + '</div>' +
     '<h1 class="es-title">' + esc(title) + '</h1>' +
-    '<div class="es-sub">' + esc(e.name) + '</div>' +
+    // ⚠️ 2026-10-08 用户裁定「两个重复标题」：失败结局账本里的 `title` 是 null
+    //    （`fromFailure` 只写 name），上面 `title = e.title || e.name` 已回落成结局名
+    //    ⇒ 大标题与副标题会是**同一个词**（截图里两个「陨命」）。两者相同 ⇒ 副标题不渲染；
+    //    只有成功结局（风味标题 ≠ 结局名）才出这行小字。
+    (title === e.name ? '' : '<div class="es-sub">' + esc(e.name) + '</div>') +
     '<div class="es-rule"></div>' +
     '<div class="es-text" id="es-text"></div>' +
     '<div class="es-skip" id="es-skip">点一下 · 立即显示全文</div>' +
@@ -85,11 +89,15 @@ function playEnding(e, opts){
   el.classList.remove('hidden');
 
   // 逐字浮现：先全暗，再一段段点亮（**跳过时立刻全亮并停掉定时器**）
+  // ⚠️⚠️ 2026-10-08 修「结算后结局正文一片空白」：原来每个 span 都是**空壳**
+  //    （`chars.map(() => '<span></span>')` —— 字符从未进 DOM，点亮的只是
+  //    一排看不见的 opacity），玩家只能靠点一下跳过才看到全文。
+  //    ⇒ span 里真正填字符；`\n` 不进 span（inline 里会折叠），换成 `<br>`。
   const box = $('es-text');
   if (box) {
     box.classList.add('es-typing');
     const chars = Array.from(txt);
-    box.innerHTML = chars.map(() => '<span></span>').join('');
+    box.innerHTML = chars.map((c) => (c === '\n' ? '<br>' : '<span>' + esc(c) + '</span>')).join('');
     const spans = box.querySelectorAll('span');
     let i = 0;
     // ⚠️ 一段一段（不是一个字一个字）—— 太快看不清，太慢读不完
@@ -140,8 +148,9 @@ function endingSecondHalf(e){
   box.classList.remove('es-typing');
   box.textContent = txt;
   // 逐字重演一次（判词是这一局最后该被看见的东西）
+  // ⚠️ 2026-10-08 与 playEnding 同修：span 里填字符、`\n` 换 `<br>`（空壳 span 的教训见上）
   const chars = Array.from(txt);
-  box.innerHTML = chars.map(() => '<span></span>').join('');
+  box.innerHTML = chars.map((c) => (c === '\n' ? '<br>' : '<span>' + esc(c) + '</span>')).join('');
   const spans = box.querySelectorAll('span');
   let i = 0;
   const step = Math.max(1, Math.ceil(chars.length / 34));

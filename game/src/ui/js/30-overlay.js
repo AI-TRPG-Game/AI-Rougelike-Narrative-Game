@@ -799,7 +799,7 @@ function kitStageHtml(dp){
     '</button>';
   }).join('');
   return '<div class="kitstage">' +
-    '<div class="ktitle">挑一句你这 28 天都认的话</div>' +
+    '<div class="ktitle">那么请选择你的欲望宣言吧少年，你需要在接下来的28天内实现它</div>' +
     '<div class="kgrid">' + cards + '</div>' +
   '</div>';
 }
@@ -836,8 +836,7 @@ function advStageHtml(dp){
         '<span class="pl-b">' + esc(mine.means) + '，' + esc(mine.proposition) + '</span>' +
         '<span class="pl-tag">' + esc(mine.manifesto) + '</span></div>'
       : '') +
-    '<div style="font-weight:650">再定下你拿什么去换</div>' +
-    // ② 文案按裁定替换
+    // ② 文案按裁定替换（2026-10-08：加粗标题「再定下你拿什么去换」按用户裁定删除）
     '<div class="sub" style="color:var(--muted);margin-top:2px">请选择你的优势属性，可选0-2项</div>' +
     '<div style="margin-top:8px">' + adv + '</div>' +
     '<div class="sub" style="font-size:12px;color:var(--muted);margin-top:6px">' +

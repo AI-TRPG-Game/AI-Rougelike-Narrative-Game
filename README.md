@@ -7,9 +7,11 @@
 游戏界面展示（请查询饺子醋😋）：
 
  ![](docs/screenshots/01-origin-desire.png)  
- ![](docs/screenshots/02-main-map.png) 
- ![](docs/screenshots/03-character-card.png)  
- ![](docs/screenshots/04-ending.png) 
+![](docs/screenshots/02-main-map.png) 
+
+
+![](docs/screenshots/03-character-card.png)  
+![](docs/screenshots/04-ending.png) 
 
 ## 玩法简介
 
