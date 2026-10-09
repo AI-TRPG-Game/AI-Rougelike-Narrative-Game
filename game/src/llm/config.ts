@@ -12,7 +12,10 @@ export interface LlmConfig {
   model: string;
 }
 
-/** 极简 `.env` 解析：`KEY=VALUE`，忽略注释与空行，值两侧引号剥掉 */
+/**
+ * 极简 `.env` 解析：`KEY=VALUE`，忽略注释与空行，值两侧引号剥掉。
+ * ⚠️ **行内注释自动剥离**：值里（引号外）出现的 `#` 起注释，`#` 及之后整段丢弃。
+ */
 export function parseEnv(text: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const raw of text.split(/\r?\n/)) {
@@ -22,8 +25,20 @@ export function parseEnv(text: string): Record<string, string> {
     if (eq < 0) continue;
     const k = line.slice(0, eq).trim();
     let v = line.slice(eq + 1).trim();
-    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
-      v = v.slice(1, -1);
+    // ⚠️ 2026-10-09（用户裁定）：行内注释**自动剥**，不再让玩家手动修 ——
+    //    旧版 .env.example 曾写 `DEEPSEEK_MODEL=deepseek-flash ##注释`，而本函数
+    //    原先只跳过整行 `#` 开头的注释 ⇒ 注释尾巴整个混进 model 名发给 API，
+    //    真实玩家当场 HTTP 400（supported: deepseek-flash… but you passed
+    //    "deepseek-flash ##目前暂时只兼容deepseek家族的模型"）。
+    //    key / URL / 模型名里都**不可能合法出现 `#`**（用户拍板）⇒ 按惯例当注释剥。
+    //    引号内的 `#` 保留（显式引用的值算数）—— 与 dotenv 家族同一套规矩。
+    if (v.startsWith('"') || v.startsWith("'")) {
+      const q = v[0];
+      const close = v.indexOf(q, 1);
+      v = close > 0 ? v.slice(1, close) : v; // 闭合引号之后的东西（含行内注释）一并丢弃
+    } else {
+      const hash = v.indexOf('#');
+      if (hash >= 0) v = v.slice(0, hash).trim();
     }
     out[k] = v;
   }
