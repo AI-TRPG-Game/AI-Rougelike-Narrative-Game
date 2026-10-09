@@ -1,7 +1,7 @@
 // 请求组装 —— 三条硬护栏的落点
 //
-// ① **不提供「不传 `thinking`」这个选项** —— Phase 0 实测：不传即默认**开启**思考模式（A4c），
-//    而思考模式下「`tool_choice` 指定具体 function」**必 400**（A2 / A4c）。⇒ 这里没有开关。
+// ① DeepSeek 必须显式关闭 `thinking` —— Phase 0 实测：不传即默认**开启**思考模式（A4c），
+//    而思考模式下「`tool_choice` 指定具体 function」**必 400**（A2 / A4c）。SoCLaaS 不发送该字段。
 // ② 不传 `temperature` / `top_p` —— 统一非思考模式（`contract.md` §5.5 纪律 1）。
 // ③ **`assistant.tool_calls` 回填进下一轮之前必须自己 `JSON.parse` + 规范化** ——
 //    历史回填内容服务端**完全不校验**（T1 / T2），畸形内容会一路带下去且无人报警。
@@ -64,6 +64,8 @@ export interface ChatMessage {
 }
 
 export interface BuildOptions {
+  provider?: 'deepseek' | 'soclaas';
+  reasoningEffort?: 'none' | 'low' | 'medium' | 'high';
   model: string;
   messages: ChatMessage[];
   /** **只放当前调用点需要的那一个 function**（未选中的 function 不进 prompt ⇒ 零成本） */
@@ -75,7 +77,26 @@ export interface BuildOptions {
   callPoint?: CallPoint;
 }
 
-/** 请求体。⚠️ `thinking` 是硬编码，**没有让它缺席的代码路径**。 */
+/** Convert DeepSeek's $def extension to standard JSON Schema for SoCLaaS. */
+function compatibleSchema(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(compatibleSchema);
+  if (!node || typeof node !== 'object') return node;
+  return Object.fromEntries(Object.entries(node).map(([key, value]) => [
+    key === '$def' ? '$defs' : key,
+    key === '$ref' && typeof value === 'string'
+      ? value.replace(/^#\/\$def\//, '#/$defs/')
+      : compatibleSchema(value),
+  ]));
+}
+
+function compatibleTool(tool: unknown): unknown {
+  const spec = tool as { function?: Record<string, unknown> };
+  if (!spec.function) return tool;
+  const { strict: _strict, parameters, ...rest } = spec.function;
+  return { ...spec, function: { ...rest, parameters: compatibleSchema(parameters) } };
+}
+
+/** Preserve DeepSeek defaults; SoCLaaS uses OpenAI-compatible tools and schemas. */
 export function buildChatBody(o: BuildOptions): Record<string, unknown> {
   const maxTokens =
     o.maxTokens ?? (o.callPoint ? MAX_TOKENS[o.callPoint] : MAX_TOKENS['resolve.settle']);
@@ -83,10 +104,12 @@ export function buildChatBody(o: BuildOptions): Record<string, unknown> {
     model: o.model,
     messages: o.messages,
     stream: false,
-    tools: o.tools,
+    tools: o.provider === 'soclaas' ? o.tools.map(compatibleTool) : o.tools,
     tool_choice: { type: 'function', function: { name: o.toolChoiceName } },
-    // ① 硬编码：不传 = 思考模式 = tool_choice 指定 function 直接 400
-    thinking: { type: 'disabled' },
+    // Unknown SoCLaaS models receive no unverified vendor reasoning fields.
+    ...(o.provider === 'soclaas'
+      ? (o.reasoningEffort ? { reasoning_effort: o.reasoningEffort } : {})
+      : { thinking: { type: 'disabled' } }),
     max_tokens: maxTokens,
     // ② 刻意不传 temperature / top_p（非思考模式下 top_p 恒为 1.0，传了也被忽略）
   };

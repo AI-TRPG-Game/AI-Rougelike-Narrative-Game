@@ -165,6 +165,8 @@ function bodyOf(
   tool: JsonSchema = resolveTool(),
 ): Record<string, unknown> {
   return buildChatBody({
+    provider: cfg.provider,
+    reasoningEffort: cfg.reasoningEffort,
     model: cfg.model,
     messages,
     // ⚠️ **只挂当前调用点需要的那一个 function**：未选中的 function 不进 prompt ⇒ 零成本
