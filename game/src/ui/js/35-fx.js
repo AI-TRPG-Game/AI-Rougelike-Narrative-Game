@@ -427,12 +427,15 @@ function rollPanelHtml(v){
 
 function segmentHtml(text, cls){
   // ⚠️ 2026-10-07：先净化再切段 —— 结算正文是 LLM 散文的重灾区（标点旁夹空格）。
+  // ⚠️ 2026-10-09：esc 后把换行转 <br> —— .segline 不是 pre-wrap，真 \n 会被折叠成
+  //    空格；tidyProse 已把 LLM 字面 `\n` 还原成真换行，模型的分段到这里要真的分段
+  //    （与 escProse 的出口同一口径，见 05-utils.js）。
   const t = tidyProse(text);
   if (!t) return '';
   const parts = t.split(/(?<=[。！？；])/);
-  if (parts.length > 12) return '<span class="' + cls + '">' + esc(t) + '</span>';
+  if (parts.length > 12) return '<span class="' + cls + '">' + esc(t).replace(/\n/g, '<br>') + '</span>';
   return parts.filter(Boolean).map(function (s, i) {
-    return '<span class="' + cls + '" style="--seg:' + i + '">' + esc(s) + '</span>';
+    return '<span class="' + cls + '" style="--seg:' + i + '">' + esc(s).replace(/\n/g, '<br>') + '</span>';
   }).join('');
 }
 

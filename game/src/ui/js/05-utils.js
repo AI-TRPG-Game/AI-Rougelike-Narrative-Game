@@ -36,7 +36,14 @@ const esc = (s) => String(s === null || s === undefined ? '' : s).replace(/[&<>"
  * **LLM 散文的排版净化**（2026-10-07 用户报告「方框符号旁边有莫名其妙的空格」）：
  * 模型偶尔在「」等全角标点旁夹半角空格、甚至把后引号单独甩到下一行行首——
  * 多数正文容器不是 pre-wrap ⇒ 源文本里的换行塌成空格，读起来就是"凭空多一格"。
- * 规则（**只动空白，不碰一个字**）：
+ * 规则：
+ *  · **字面转义序列先还原**（2026-10-09）：模型偶尔把 `\n` 当两个字符写进 JSON 参数
+ *    （`"第一段\\n第二段"` ⇒ JSON.parse 后就是字面 `\` + `n`）——屏幕上赫然四个字符
+ *    `\n\n`。中文叙事里反斜杠+字母的组合不存在 ⇒ 字面 `\n` 还原为真换行、`\t` 还原为
+ *    空格、`\r` 直接删，模型想表达的分段才真的成立；
+ *  · **半角直引号转弯引号**（2026-10-09）：模型写中文叙事时爱手滑用 `"…"`（ASCII 直引号，
+ *    比中文语境窄一截）。escProse 只喂**正文散文**（名字/标题不走这里）⇒ 按出现次序
+ *    奇偶交替换成 “ ”——正好接上下面的空格清理（“” 与全角标点同队，旁不留空格）；
  *  · 行内连续空白归一成一个半角空格（含全角空格 \u3000 —— 模型偶尔垫的那种"看着像缩进
  *    其实哪里都不挨着"的一格）；行首尾清零；
  *  · 全角标点（，。！？；：、」』）】》…— 和弯引号 ’”）**前后不留空格** ——
@@ -47,9 +54,17 @@ const esc = (s) => String(s === null || s === undefined ? '' : s).replace(/[&<>"
  *    （那半截不归这里管 —— 源文本没换行，是折行把 」 挤下去的）。
  */
 function tidyProse(s){
-  const lines = String(s || '').replace(/\r/g, '').split('\n')
+  const lines = String(s || '')
+    .replace(/\r/g, '')          // 真回车：清
+    .replace(/\\r/g, '')         // 字面 \r：LLM 手滑的转义符，删
+    .replace(/\\n/g, '\n')       // 字面 \n：模型的分段本意 ⇒ 还原为真换行（下面 split 吃它）
+    .replace(/\\t/g, ' ')        // 字面 \t：还原为空格（行内空白归一随即收编）
+    .split('\n')
     .map(function (line) {
       let t = line.replace(/[ \t\u3000]+/g, ' ').trim();
+      // 半角直引号 → 中文弯引号：每行独立配对（第奇数个当开 “、偶数个当闭 ”）
+      let open = true;
+      t = t.replace(/"/g, function () { const c = open ? '\u201c' : '\u201d'; open = !open; return c; });
       t = t.replace(/ ([，。！？；：、」』）】》…—’”])/g, '$1')
            .replace(/([「『（《【“‘]) /g, '$1')
            .replace(/([，。！？；：、」』）】》…—’”]) /g, '$1');
@@ -63,8 +78,12 @@ function tidyProse(s){
   }
   return out.join('\n');
 }
-/** esc ＋ 净化一步到位（LLM 散文的渲染口都用这个，名字/titre 别用——那两类不需要动文本） */
-const escProse = (s) => esc(tidyProse(s));
+/** esc ＋ 净化一步到位（LLM 散文的渲染口都用这个，名字/title 别用——那两类不需要动文本）
+ *  ⚠️ 2026-10-09：出口把换行转 <br> —— escProse 的消费容器（#modal .body / .ev .body /
+ *    .prose / 场景气泡）都**不是** pre-wrap，真 \n 会被 CSS 折叠成空格；模型写下的分段
+ *    （\n\n）到这里就该真的分段。pre-wrap 容器（结局屏 .es-text）不走这里——
+ *    它用裸 tidyProse 自己安排换行（见 25-ending-title.js）。 */
+const escProse = (s) => esc(tidyProse(s)).replace(/\n/g, '<br>');
 const arr = (x) => (Array.isArray(x) ? x : []);
 const cap = (a) => a.slice(0, 1).toUpperCase() + a.slice(1);
 
