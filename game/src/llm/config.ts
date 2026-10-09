@@ -7,9 +7,12 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 export interface LlmConfig {
+  /** Omitted by legacy callers: DeepSeek. */
+  provider?: 'deepseek' | 'soclaas';
   apiKey: string;
   betaBaseUrl: string;
   model: string;
+  reasoningEffort?: 'none' | 'low' | 'medium' | 'high';
 }
 
 /**
@@ -54,15 +57,38 @@ export function loadConfig(): LlmConfig {
     text = fs.readFileSync(ENV_PATH, 'utf8');
   } catch {
     throw new Error(
-      `读不到 ${fileURLToPath(ENV_PATH)}\n　　⇒ 复制 game/.env.example 为 game/.env，填入 DEEPSEEK_API_KEY`,
+      `读不到 ${fileURLToPath(ENV_PATH)}\n　　⇒ 复制 game/.env.example 为 game/.env，配置 LLM_PROVIDER 和对应 API_KEY`,
     );
   }
-  const env = parseEnv(text);
-  const apiKey = env.DEEPSEEK_API_KEY ?? '';
-  if (apiKey === '' || apiKey.startsWith('sk-replace')) {
-    throw new Error('game/.env 里的 DEEPSEEK_API_KEY 还没填（或仍是占位符）');
+  return configFromEnv(parseEnv(text));
+}
+
+/** Provider-specific configuration; never mix credentials between providers. */
+export function configFromEnv(env: Record<string, string>): LlmConfig {
+  const provider = (env.LLM_PROVIDER || (env.SOCLAAS_API_KEY ? 'soclaas' : 'deepseek')).toLowerCase();
+  if (provider !== 'deepseek' && provider !== 'soclaas') {
+    throw new Error('LLM_PROVIDER 必须是 deepseek 或 soclaas');
+  }
+  const keyName = provider === 'soclaas' ? 'SOCLAAS_API_KEY' : 'DEEPSEEK_API_KEY';
+  const apiKey = env[keyName] ?? '';
+  if (!apiKey || /^(sk-replace|your[-_]|replace[-_])/i.test(apiKey)) {
+    throw new Error(`game/.env 里的 ${keyName} 还没填（或仍是占位符）`);
+  }
+  if (provider === 'soclaas') {
+    const effort = env.SOCLAAS_REASONING_EFFORT;
+    if (effort && !['none', 'low', 'medium', 'high'].includes(effort)) {
+      throw new Error('SOCLAAS_REASONING_EFFORT 必须是 none/low/medium/high');
+    }
+    return {
+      provider,
+      apiKey,
+      betaBaseUrl: env.SOCLAAS_BASE_URL || 'https://soclaas-api.comp.nus.edu.sg/v1',
+      model: env.SOCLAAS_MODEL || 'x-test-1',
+      ...(effort ? { reasoningEffort: effort as LlmConfig['reasoningEffort'] } : {}),
+    };
   }
   return {
+    provider,
     apiKey,
     betaBaseUrl: env.DEEPSEEK_BETA_BASE_URL || 'https://api.deepseek.com/beta',
     model: env.DEEPSEEK_MODEL || 'deepseek-flash',
