@@ -324,6 +324,12 @@ function dropBlockReason(slot, src){
     if (p.hp <= 1) return p.name + ' 只剩一口气';
     if (p.san <= 1) return p.name + ' SAN 见底';
     if (p.away) return p.name + ' 还在办别的事、人没回来';
+    // ⚠️ 2026-10-09（用户报告）：被拒的这位恰是「非他不可」的本人时，兜底那句
+    //   「X 今天调不动」会让人以为"那换个人去"—— 可这件事**只能等他**。
+    //   先说「这件事X必须要去」，再补一句他为什么现在去不了。
+    //   （上面 hp / SAN / away 三条是具体伤情，信息量更大，不盖。）
+    if (ev.requiredPerson && src.id === ev.requiredPerson.id)
+      return '这件事' + ev.requiredPerson.name + '必须要去——可他今天调不动';
     return p.name + ' 今天调不动';
   }
   if (d === 'fix') return '他不需要（或今天去不了）' + slot.dataset.fix;

@@ -37,7 +37,7 @@ const POPUP_EVENT: JsonSchema = {
     stage: {
       type: 'string',
       description:
-        '发生地点。**直接用实体表里已注册的地点名**（已注册 9 处，见《设定.md·预置地点》；同一地点固定用同一个名字，不要换写法）；**也可以新建**，并同时按 entities.places 登记（别只写在 stage 里）',
+        '发生地点。**直接用实体表里已注册的地点名**（已注册 9 处，见《设定.md·预置地点》；同一地点固定用同一个名字，不要换写法）；**也可以新建** —— 直接把新地点的名字写进 stage 即可，系统落地时会自动登记它（**不要**把地点塞进选项 `delta` 的 `entities.places`）',
     },
     content: { type: 'string', description: '给玩家看的事件描述（到底发生了什么），2~3 句' },
     deadline: {
@@ -99,7 +99,7 @@ const CANVAS_EVENT: JsonSchema = {
     stage: {
       type: 'string',
       description:
-        '发生地点。**直接用实体表里已注册的地点名**（已注册 9 处，见《设定.md·预置地点》）；**也可以新建**，并同时按 entities.places 登记',
+        '发生地点。**直接用实体表里已注册的地点名**（已注册 9 处，见《设定.md·预置地点》；**也可以新建** —— 直接把新地点的名字写进 stage 即可，系统落地时会自动登记它）',
     },
     content: { type: 'string', description: '给玩家看的事件描述（到底发生了什么），2~3 句' },
     hint_attr: {
@@ -191,12 +191,32 @@ const COMPOSE_PROPERTIES: JsonSchema = {
 
 const COMPOSE_REQUIRED = ['popup_events', 'canvas_events'];
 
-/** `compose_day` 的 `parameters`。`$def` 只挂被引用到的（由 `usedDefs()` 反推，不手写清单）。 */
-export function composeParameters(): JsonSchema {
+/**
+ * `compose_day` 的 `parameters`。
+ * `$def` 只挂被引用到的（由 `usedDefs()` 反推，不手写清单）。
+ * ⚠️ `required_person` 是**动态 enum**（2026-10-09 用户裁定）：
+ *    候选 ＝ 玩家本人＋当前已入队的人物 id（由调用侧从账本算好传进来）。
+ *    此前它是自由文本「从实体表挑、不要编」——模型怕编错干脆**全填空字符串**
+ *    ⇒ 用户报告「非 xxx 不可的显示不稳定，应该有它却没有」（根因在生成端，不在显示端）。
+ *    enum 把候选钉死：模型敢填了，也**不可能**再指到一个此刻调不动的人身上
+ *    （未入队的人进了 required ⇒ 事件一落地就是谁也办不成的死局）。
+ */
+export function composeParameters(requiredCandidates: string[]): JsonSchema {
+  // 深拷贝 CanvasEvent（纯 JSON 值，JSON 法最稳）再覆写 required_person —— 静态基线保留原样：
+  // required-person.test.ts 钉着源码里的属性定义块，且它是这套 schema 的"文档"。
+  const canvas = JSON.parse(JSON.stringify(CANVAS_EVENT)) as typeof CANVAS_EVENT;
+  const rp = canvas.properties.required_person as JsonSchema;
+  rp.enum = ['', ...requiredCandidates];
+  rp.description =
+    (rp.description ?? '') +
+    '\n⚠️ **候选全集就是上方 enum 列表**（＝ 玩家本人＋当前已入队的人物，此刻调得动的人）。' +
+    '未入队的人此刻调不动，指定他们只会做出谁也办不成的死局 ⇒ **不许填列表之外的人**。' +
+    '没有「非他不可」的情况就填空字符串';
+  const defsAll: Record<string, JsonSchema> = { ...COMPOSE_DEFS, CanvasEvent: canvas };
   const properties = { ...COMPOSE_PROPERTIES };
-  const names = usedDefs({ properties, required: COMPOSE_REQUIRED }, COMPOSE_DEFS);
+  const names = usedDefs({ properties, required: COMPOSE_REQUIRED }, defsAll);
   const defs: Record<string, JsonSchema> = {};
-  for (const n of names) defs[n] = COMPOSE_DEFS[n];
+  for (const n of names) defs[n] = defsAll[n];
   return {
     type: 'object',
     properties,
@@ -209,8 +229,11 @@ export function composeParameters(): JsonSchema {
 export const COMPOSE_DESCRIPTION =
   '生成今天推送给玩家的事件。分两个通道：popup_events 走弹窗（**强制弹窗——玩家必须当天全部处理完，才能做别的事**；选中即时生效、不掷骰，所以你要**在 result_text 里直接把那一下的后果写好**）；canvas_events 走画布卡片（档 B/C，玩家投入人手或亲自去做，之后才判定成败）。自由事件总数 ≤5。';
 
-export function composeTool(): JsonSchema {
-  return buildToolFunction('compose_day', { description: COMPOSE_DESCRIPTION, parameters: composeParameters() });
+export function composeTool(requiredCandidates: string[]): JsonSchema {
+  return buildToolFunction('compose_day', {
+    description: COMPOSE_DESCRIPTION,
+    parameters: composeParameters(requiredCandidates),
+  });
 }
 
 /** §6.4 的两条硬顶 —— 供指令正文与**单测**共用一份，避免两处各写一个数 */

@@ -26,7 +26,7 @@ import {
   type Tier,
   type Verdict,
 } from '../contract/types.ts';
-import type { GameEvent, Ledger } from '../ledger/types.ts';
+import { player, type GameEvent, type Ledger } from '../ledger/types.ts';
 import {
   assembleArchive,
   assembleCompose,
@@ -230,12 +230,22 @@ export function buildIgnoreRequest(cfg: LlmConfig, l: Ledger, ev: GameEvent): Re
  *    名字必须真的在 `tools` 里，否则服务端直接 400。
  * ⚠️ `system` 用的是**同一份静态头**（＋「生成」指令）⇒ 与 `resolve` 主链共享段 ① 的缓存前缀。
  */
+/**
+ * `required_person` 的动态 enum 候选（2026-10-09 用户裁定）：
+ * **玩家本人 ＋ 当前已入队的人物** —— 生成那一刻谁调得动，谁才有资格「非他不可」。
+ * 未入队的人不在候选里 ⇒ 模型想填也填不进 enum ⇒「required 指向调不动的人」的死局被结构性杜绝。
+ */
+function requiredCandidatesOf(l: Ledger): string[] {
+  const me = player(l);
+  return [me.id, ...l.entities.people.filter((p) => p.affiliated && p.id !== me.id).map((p) => p.id)];
+}
+
 export function buildComposeRequest(cfg: LlmConfig, l: Ledger): ResolveRequest {
   const prompt = assembleCompose(l);
   return {
     callPoint: 'compose_day',
     prompt,
-    body: bodyOf(cfg, 'compose_day', messagesOf(prompt), 'compose_day', composeTool()),
+    body: bodyOf(cfg, 'compose_day', messagesOf(prompt), 'compose_day', composeTool(requiredCandidatesOf(l))),
   };
 }
 
@@ -258,7 +268,7 @@ export function buildCreateRequest(cfg: LlmConfig, l: Ledger, approach: string):
   return {
     callPoint: 'create_event',
     prompt,
-    body: bodyOf(cfg, 'create_event', messagesOf(prompt), 'compose_day', composeTool()),
+    body: bodyOf(cfg, 'create_event', messagesOf(prompt), 'compose_day', composeTool(requiredCandidatesOf(l))),
   };
 }
 

@@ -125,7 +125,7 @@ export const suites: Suite[] = [
       t.test('★ 只挂被引用到的 `$def` —— 两个私有零件 ＋ Delta 的传递闭包（Place / Person / Item）', () => {
         // `PopupEvent.options[].delta` 引整个 `Delta`，而 `Delta.entities` 又引 Place / Person / Item
         // ⇒ 这里锁的是 usedDefs() 的**传递闭包**算对了，而不只是顶层两个。
-        t.deep(Object.keys(composeParameters().$def as object).sort(), [
+        t.deep(Object.keys(composeParameters(['npc000', 'npc003']).$def as object).sort(), [
           'CanvasEvent',
           'Delta',
           'Item',
@@ -136,23 +136,23 @@ export const suites: Suite[] = [
       });
 
       t.test('★ `$def` 放 `parameters` 末尾（与 `resolve` 同一条缓存纪律）', () => {
-        const keys = Object.keys(composeParameters());
+        const keys = Object.keys(composeParameters(['npc000', 'npc003']));
         t.eq(keys[keys.length - 1], '$def');
         t.deep(keys, ['type', 'properties', 'required', 'additionalProperties', '$def']);
       });
 
       t.test('`$ref` 指向的名字都挂在 `$def` 里 —— **引用了但忘了挂**这类静默错误没人会告诉你', () => {
-        t.deep(checkRefs(composeParameters()), []);
+        t.deep(checkRefs(composeParameters(['npc000', 'npc003'])), []);
       });
 
       t.test('`required` 与 `properties` 一一对应，且恰好是两条通道', () => {
-        const p = composeParameters();
+        const p = composeParameters(['npc000', 'npc003']);
         t.deep(p.required, Object.keys(p.properties as object));
         t.deep(p.required, ['popup_events', 'canvas_events']);
       });
 
       t.test('function 形状：`type=function` · `name=compose_day` · `strict=true`', () => {
-        const tool = composeTool() as { type: string; function: Record<string, unknown> };
+        const tool = composeTool(['npc000', 'npc003']) as { type: string; function: Record<string, unknown> };
         t.eq(tool.type, 'function');
         t.eq(tool.function.name, 'compose_day');
         t.eq(tool.function.strict, true);
@@ -160,7 +160,7 @@ export const suites: Suite[] = [
       });
 
       t.test('★ 两条通道靠**结构**区分、不靠约定：档 A 无 `tier` 有 `options`；档 B/C 有 `tier` 无 `options`', () => {
-        const defs = composeParameters().$def as Record<
+        const defs = composeParameters(['npc000', 'npc003']).$def as Record<
           string,
           { properties: Record<string, unknown>; required: string[] }
         >;
@@ -175,7 +175,7 @@ export const suites: Suite[] = [
       });
 
       t.test('★ 选项的 `欲向` 只有三档 —— 点一下拿不到「得偿」「盛宴」', () => {
-        const defs = composeParameters().$def as Record<
+        const defs = composeParameters(['npc000', 'npc003']).$def as Record<
           string,
           { properties: { options: { items: { properties: { 欲向: { enum: string[] } } } } } }
         >;

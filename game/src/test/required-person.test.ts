@@ -19,6 +19,7 @@ import { readFileSync } from 'node:fs';
 import { makeEvent } from '../fixtures/fake.ts';
 import { initialLedger } from '../ledger/initial.ts';
 import { PLAYER_ID, findPerson } from '../ledger/types.ts';
+import { composeParameters } from '../schema/compose.ts';
 import { evalGates } from '../rules/gates.ts';
 import { landCompose } from '../turn/land-compose.ts';
 import { Session } from '../ui/session.ts';
@@ -259,6 +260,15 @@ export const suites: Suite[] = [
         t.ok(html.includes('e.requiredPerson'), 'UI 读的是同一个名字');
         t.ok(!html.includes('e.required_person'), 'UI 不许直接读账本字段名（视图层是唯一接口）');
       });
+
+      t.test('★ 拖「非他不可」本人被拒 ⇒ 弹窗先说「这件事X必须要去」（2026-10-09 用户报告）', () => {
+        // 兜底那句「X 今天调不动」会让人以为"换个人去也行"—— 可这件事只能等他。
+        const html = readPlayerPage();
+        t.ok(
+          html.includes('必须要去——可他今天调不动'),
+          '拒绝文案要换位成「这件事X必须要去——可他今天调不动」',
+        );
+      });
     },
   },
 
@@ -293,6 +303,28 @@ export const suites: Suite[] = [
         const j = src.indexOf('required_person', i);
         t.ok(j > i, '创建指令里也要提到它（不能只字不提 —— 它是 required 字段）');
         t.ok(src.slice(j, j + 120).includes('填空字符串'), '创建那条的口径是「填空字符串」');
+      });
+
+      t.test('★ enum 候选由系统动态注入：玩家本人＋已入队（2026-10-09 用户裁定）', () => {
+        const defs = composeParameters(['npc000', 'npc003']).$def as Record<
+          string,
+          { properties: Record<string, { enum?: string[] }> }
+        >;
+        t.deep(
+          defs.CanvasEvent.properties.required_person.enum,
+          ['', 'npc000', 'npc003'],
+          '空串＝未指定；候选＝玩家本人＋已入队 —— 未入队的人想填也填不进',
+        );
+        const solo = composeParameters(['npc000']).$def as typeof defs;
+        t.deep(solo.CanvasEvent.properties.required_person.enum, ['', 'npc000'], '没人入队时候选只剩玩家');
+      });
+
+      t.test('★ 两个请求组装点都真把账本候选传进 schema（防"schema-only 假机制"复发）', () => {
+        const src = readFileSync(new URL('../llm/brain-llm.ts', import.meta.url), 'utf8');
+        t.ok(src.includes('function requiredCandidatesOf'), '候选计算函数要在 brain-llm 里');
+        const n = (src.match(/composeTool\(requiredCandidatesOf\(l\)\)/g) || []).length;
+        t.ok(n >= 2, `生成半与玩家自建两个调用点都要传参，实得 ${n} 处`);
+        t.ok(src.includes('p.affiliated && p.id !== me.id'), '候选只收已入队者，且玩家不重复计入');
       });
 
       t.test('【事件卡】块带上它 —— 但**只在有值时**多出那一段（空值不许污染 594 条基线）', () => {

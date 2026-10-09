@@ -272,9 +272,10 @@ export function landCompose(
   }
 
   // ── ④ 地点名 → 地点 id（**顺手补登记**）──────────────────────
-  //    ⚠️ `compose_day` 的 `CanvasEvent` / `PopupEvent` **没有 `entities` 字段**
-  //       （只有 `resolve` 有）⇒ schema 里那句"也可以新建，并同时按 entities.places 登记"
-  //       对生成半**做不到**。于是登记由规则层代劳：名字没注册过就发一个 `loc` 号建上。
+  //    ⚠️ `compose_day` 的事件**本体**没有 `entities` 字段（它只在选项 `delta` 里）⇒
+  //       stage 的新地点没有直接落点。2026-10-09 起 schema 的 stage 说明已改为
+  //       「直接写新名字即可，系统自动登记；不要塞进选项 delta 的 entities.places」，
+  //       与这里的代劳机制对齐：名字没注册过就发一个 `loc` 号建上。
   //       不做的话，`stage` 里会出现一个**查无此地的名字**，而 `location` 只能填 null。
   const placeCache = new Map<string, string>();
   function resolvePlace(name: string): string | null {
@@ -290,7 +291,7 @@ export function landCompose(
     const id = alloc.next('loc');
     l.entities.places.push({ id, etype: 'place', name: trimmed, desc: '' });
     placeCache.set(trimmed, id);
-    log.push(`落地：新地点「${trimmed}」→ ${id}（生成半的 schema 里没有 entities ⇒ 登记由规则层代劳）`);
+    log.push(`落地：新地点「${trimmed}」→ ${id}（事件本体没有 entities 字段 ⇒ 登记由规则层代劳）`);
     return id;
   }
 

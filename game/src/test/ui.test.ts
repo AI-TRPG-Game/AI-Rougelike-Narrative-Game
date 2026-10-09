@@ -1583,10 +1583,14 @@ const 玩家界面: Suite = {
       // ㉓ 2026-10-07 用户 bug：「方框符号旁边有莫名其妙的空格」——
       //    LLM 散文里的半角空格/被甩到行首的后引号原样渲染。
       //    净化器 tidyProse 必须存在，且 segline（结算正文）与 escProse（各散文口）都接上。
+      //    ⚠️ 2026-10-09 口径升级：escProse / segmentHtml 的出口统一把换行转 <br>
+      //    （正文容器都不是 pre-wrap，真 \n 会被折叠成空格）—— 断言钉的是新形状；
+      //    segmentHtml 函数头到 tidyProse(text) 的窗口放宽到 400（两轮修复的说明
+      //    注释不该被字符数卡死）。
       t.ok(
         html.includes('function tidyProse(s)') &&
-        /const escProse = \(s\) => esc\(tidyProse\(s\)\);/.test(html) &&
-        /function segmentHtml\(text, cls\)\{[\s\S]{0,120}tidyProse\(text\)/.test(html) &&
+        /const escProse = \(s\) => esc\(tidyProse\(s\)\)\.replace\(\/\\n\/g, '<br>'\);/.test(html) &&
+        /function segmentHtml\(text, cls\)\{[\s\S]{0,400}tidyProse\(text\)/.test(html) &&
         (html.match(/escProse\(/g) || []).length >= 5,
         '★★ 散文净化器没接上（tidyProse / escProse / segmentHtml 之一缺失）',
       );
