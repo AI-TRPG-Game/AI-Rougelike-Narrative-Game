@@ -1,14 +1,17 @@
 import { configFromEnv, parseEnv } from '../llm/config.ts';
 import { buildChatBody } from '../llm/request.ts';
-import { buildComposeRequest, buildEndingRequest } from '../llm/brain-llm.ts';
-import { callTool, callToolStream } from '../llm/client.ts';
+import { buildComposeRequest, buildEndingRequest, llmBrain } from '../llm/brain-llm.ts';
+import { callTool, callToolStream, sendChat } from '../llm/client.ts';
+import { fakeComposeDay } from '../fixtures/fake.ts';
+import { makeRng } from '../rules/rng.ts';
+import { landCompose } from '../turn/land-compose.ts';
 import { initialLedger } from '../ledger/initial.ts';
 import { resolveTool, sceneTool } from '../schema/resolve.ts';
 import type { Suite } from './harness.ts';
 
 const cfg = configFromEnv({ LLM_PROVIDER: 'soclaas', SOCLAAS_API_KEY: 'test-key' });
 const body = () => buildChatBody({ provider: cfg.provider, model: cfg.model,
-  messages: [], tools: [sceneTool()], toolChoiceName: 'scene' });
+  reasoningEffort: cfg.reasoningEffort, messages: [], tools: [sceneTool()], toolChoiceName: 'scene' });
 
 export const suites: Suite[] = [{
   name: 'LLM provider configuration and transport',
@@ -23,6 +26,7 @@ export const suites: Suite[] = [{
     });
     t.test('SoCLaaS defaults and overrides; explicit provider keeps credentials separate', () => {
       t.eq(cfg.model, 'x-test-1');
+      t.eq(cfg.reasoningEffort, 'none');
       t.eq(cfg.betaBaseUrl, 'https://soclaas-api.comp.nus.edu.sg/v1');
       const custom = configFromEnv({ SOCLAAS_API_KEY: 'soc-key', DEEPSEEK_API_KEY: 'ds-key',
         SOCLAAS_MODEL: 'custom-id', SOCLAAS_BASE_URL: 'https://example.invalid/v1', SOCLAAS_REASONING_EFFORT: 'none' });
@@ -44,7 +48,8 @@ export const suites: Suite[] = [{
       t.eq('strict' in tool, false);
       t.eq('thinking' in request, false);
       t.eq(request.reasoning_effort, 'none');
-      t.eq('reasoning_effort' in body(), false);
+      t.eq(body().reasoning_effort, 'none');
+      t.eq(configFromEnv({ SOCLAAS_API_KEY: 'test-key', SOCLAAS_REASONING_EFFORT: 'low' }).reasoningEffort, 'low');
       t.ok('$defs' in tool.parameters);
       t.eq('$def' in tool.parameters, false);
       t.eq(JSON.stringify(tool).includes('#/$def/'), false);
@@ -59,6 +64,7 @@ export const suites: Suite[] = [{
       for (const request of [buildComposeRequest(cfg, initialLedger()), buildEndingRequest(cfg, endingLedger)]) {
         t.eq(request.body.model, cfg.model);
         t.eq('thinking' in request.body, false);
+        t.eq(request.body.reasoning_effort, 'none');
         t.eq('strict' in (request.body.tools as any[])[0].function, false);
       }
     });
@@ -72,13 +78,13 @@ export const suites: Suite[] = [{
           authorization: (options!.headers as Record<string, string>).Authorization });
         if (!sent.stream) return new Response(JSON.stringify({ choices: [{
           message: { tool_calls: [{ id: 'call_test', type: 'function',
-            function: { name: 'scene', arguments: JSON.stringify(args) } }] }, finish_reason: 'tool_calls',
+            function: { name: 'scene', arguments: JSON.stringify(args) } }] }, finish_reason: 'stop',
         }] }), { status: 200 });
         const serialized = JSON.stringify(args);
         const chunks = [
           { choices: [{ delta: { tool_calls: [{ id: 'call_test', function: { name: 'scene', arguments: serialized.slice(0, 20) } }] } }] },
           { choices: [{ delta: { tool_calls: [{ function: { arguments: serialized.slice(20) } }] } }] },
-          { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+          { choices: [{ delta: {}, finish_reason: 'stop' }] },
         ];
         return new Response(chunks.map(chunk => 'data: ' + JSON.stringify(chunk) + '\n\n').join('') + 'data: [DONE]\n\n',
           { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
@@ -105,6 +111,50 @@ export const suites: Suite[] = [{
         }
         t.eq(requests[0].body.stream, false);
         t.eq(requests[1].body.stream, true);
+      } finally { globalThis.fetch = originalFetch; }
+    });
+    t.test('stop still rejects missing tools, malformed JSON, truncation and legacy DeepSeek', async () => {
+      const originalFetch = globalThis.fetch;
+      try {
+        for (const sample of [
+          { reason: 'stop', name: '', args: '{}' },
+          { reason: 'stop', name: 'scene', args: '{' },
+          { reason: 'length', name: 'scene', args: '{}' },
+        ]) {
+          globalThis.fetch = async () => new Response(JSON.stringify({ choices: [{ finish_reason: sample.reason,
+            message: { tool_calls: [{ function: { name: sample.name, arguments: sample.args } }] } }] }));
+          t.eq((await sendChat(cfg, body())).ok, false);
+          globalThis.fetch = async () => new Response('data: ' + JSON.stringify({ choices: [{
+            delta: { tool_calls: [{ function: { name: sample.name, arguments: sample.args } }] },
+            finish_reason: sample.reason }] }) + '\n\ndata: [DONE]\n\n');
+          t.eq((await callToolStream(cfg, body())).ok, false);
+        }
+        globalThis.fetch = async () => new Response(JSON.stringify({ choices: [{ finish_reason: 'stop',
+          message: { tool_calls: [{ function: { name: 'scene', arguments: '{}' } }] } }] }));
+        t.eq((await sendChat({ ...cfg, provider: 'deepseek' }, body())).ok, false);
+        globalThis.fetch = async () => new Response(JSON.stringify({ choices: [{ finish_reason: 'stop',
+          message: { content: 'ordinary text' } }] }));
+        t.eq((await sendChat(cfg, body())).ok, false);
+      } finally { globalThis.fetch = originalFetch; }
+    });
+    t.test('completed SoCLaaS compose with stop lands visible starting events without retry', async () => {
+      const originalFetch = globalThis.fetch;
+      const ledger = initialLedger();
+      const rng = makeRng(42);
+      const output = fakeComposeDay(ledger, rng);
+      let attempts = 0;
+      globalThis.fetch = async () => {
+        attempts++;
+        return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { tool_calls: [{
+          function: { name: 'compose_day', arguments: JSON.stringify(output) },
+        }] } }] }));
+      };
+      try {
+        const raw = await llmBrain({ cfg }).composeDay(ledger, rng);
+        const landed = landCompose(ledger, raw);
+        t.eq(attempts, 1);
+        t.ok(landed.live.length > 0);
+        t.ok(ledger.events.live.length > 0);
       } finally { globalThis.fetch = originalFetch; }
     });
   },

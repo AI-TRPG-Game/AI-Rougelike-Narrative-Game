@@ -84,7 +84,9 @@ export function configFromEnv(env: Record<string, string>): LlmConfig {
       apiKey,
       betaBaseUrl: env.SOCLAAS_BASE_URL || 'https://soclaas-api.comp.nus.edu.sg/v1',
       model: env.SOCLAAS_MODEL || 'x-test-1',
-      ...(effort ? { reasoningEffort: effort as LlmConfig['reasoningEffort'] } : {}),
+      // Gateway reasoning consumes the same output budget as game events.
+      // Verified with x-test-2: none leaves that budget for tool arguments.
+      reasoningEffort: (effort || 'none') as LlmConfig['reasoningEffort'],
     };
   }
   return {
