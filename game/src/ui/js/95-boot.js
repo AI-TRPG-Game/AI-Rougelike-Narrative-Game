@@ -5,10 +5,14 @@
  *    是真的切。用它做两件事：① 截两套主题的对照图；② 在别的机器上复现某个配色问题。
  * ⚠️ 读 URL 只在这一处；解析失败（`#theme=xxx` 之外的东西）**静默忽略** ——
  *    页面 URL 上可能带别的 hash（`#probe` 那种调试用法），不该因此报错。
+ * ⚠️ 2026-10-14（用户裁定「默认皮肤换成日间」）：没选过的玩家回退 **light**（不再
+ *    跟随系统——系统深色的玩家打开就是夜间，那不是"默认"该有的样子）。落盘一次
+ *    之后与玩家手选完全同路。`#theme=auto` 撤锁 ⇒ 当次会话跟随系统（下次 boot
+ *    又回 light 回退）—— 它是调试口，这个一次性就够了。
  */
 (function () {
   const m = /(?:^|[#&])theme=(light|dark|auto)(?:&|$)/.exec(String(location.hash || ''));
-  if (!m) { applyTheme(savedTheme()); return; }
+  if (!m) { applyTheme(savedTheme() || 'light'); return; }
   applyTheme(m[1] === 'auto' ? null : m[1]);
 })();
 

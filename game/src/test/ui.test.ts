@@ -1974,6 +1974,14 @@ const 玩家界面: Suite = {
       t.ok(body.includes('reqAdvice'), '建议句随原因变');
       t.ok(body.includes('得先让他站到你这边'), '未入队 ⇒ 那是"拉他入伙"，不是"养伤"');
     });
+
+    t.test('★★ 默认皮肤是日间（2026-10-14 用户裁定）—— 没选过的玩家 boot 即落 light', () => {
+      const html = readPlayerPage();
+      t.ok(
+        /applyTheme\(savedTheme\(\) \|\| 'light'\)/.test(html),
+        '★ boot 的回退档是 light —— 系统深色的玩家打开也该是日间（跟系统只留给 #theme=auto 撤锁的当次会话）',
+      );
+    });
   },
 };
 
