@@ -32,7 +32,7 @@ git clone https://github.com/AI-TRPG-Game/AI-Rougelike-Narrative-Game
 ## 准备两样东西
 
 1. **Node.js 22.18 或更新版本**：到 [nodejs.org](https://nodejs.org/) 下载安装（一路默认即可）。项目零依赖、无构建步骤，Node 直接运行 TypeScript 源码——**直接跑 `.ts` 需要 22.18+ 才默认开启**，所以版本别低于它（拿不准就装官网最新 LTS）。
-2. **DeepSeek API Key**：到 [platform.deepseek.com](https://platform.deepseek.com/) 注册并创建一个 API Key（游戏每局会真实调用模型，按量计费，玩一局的花费很低，10r以内即可，甚至1r就可以体验很多剧情！）。
+2. **模型 API Key**：可以使用 DeepSeek 或 SoCLaaS。DeepSeek 密钥可到 [platform.deepseek.com](https://platform.deepseek.com/) 创建；SoCLaaS 使用自己的服务密钥。实际费用及试用额度以服务商和账号为准。
 
 然后配置密钥：
 
@@ -41,6 +41,31 @@ git clone https://github.com/AI-TRPG-Game/AI-Rougelike-Narrative-Game
 复制 game/.env.example 为 game/.env
 # 打开 game/.env，把 DEEPSEEK_API_KEY=sk-replace-me 换成你自己的 key
 ```
+
+### 使用 SoCLaaS / GLM 5.3 Flash
+
+SoCLaaS 是实验性学校网关，适合试用与测试，模型可用性和接口行为可能变化。正常游玩推荐使用官方 DeepSeek API（默认 `LLM_PROVIDER=deepseek`）。
+
+在 `game/.env` 中配置：
+
+```dotenv
+LLM_PROVIDER=soclaas
+SOCLAAS_API_KEY=your-soclaas-api-key
+SOCLAAS_BASE_URL=https://soclaas-api.comp.nus.edu.sg/v1
+SOCLAAS_MODEL=x-test-1
+```
+
+`SOCLAAS_MODEL` 必须匹配 SoCLaaS 模型列表中的 API 标识。根据服务试用公告，GLM 5.3 Flash 当前使用 `x-test-1`（也是代码默认值）。该试用可能移除或被其他模型替换；可用性以账号和当前服务为准，名称变化时修改这一行即可。离线测试不代表已通过真实 GLM 游戏验收。
+
+学校的 DeepSeek V4.1 Flash 试用使用 `SOCLAAS_MODEL=x-test-2`。两者都用 `LLM_PROVIDER=soclaas`、同一学校密钥和网关；修改模型 ID 后重启即可切换，不要因模型是 DeepSeek 就改成官方的 `LLM_PROVIDER=deepseek`。试用 ID 的含义可能变化，以学校最新公告为准。
+
+设置 `LLM_PROVIDER=deepseek` 可切回原来的 DeepSeek 配置。未填写 `LLM_PROVIDER` 时，有 `SOCLAAS_API_KEY` 则选择 SoCLaaS，否则保持 DeepSeek。两家密钥分别读取，不混用。修改配置后关闭并重新启动游戏；密钥只保存在后端的 `game/.env`，不要提交。
+
+SoCLaaS 使用相同的结构化工具调用和场景流式路径。请求使用标准 JSON Schema，不发送 DeepSeek 的 `strict` 扩展或 `thinking` 字段；输出仍经过游戏原有校验。网关可能用 `finish_reason=stop` 返回完整工具调用，客户端接受有工具名且 arguments 为合法 JSON 对象的完整结果，仍拒绝截断、坏 JSON 和普通文本。
+
+`SOCLAAS_REASONING_EFFORT` 默认 `none`，避免思考耗尽事件输出预算；可按服务支持情况设置 `low/medium/high`。模型的推理行为并不完全相同，也不保证每个后端都能关闭推理。2026-10-14 的一次隔离 `x-test-2` 实测使用 `none`，返回五条可见事件、零思考 token，未修改玩家存档；这不代表已通过真实 GLM 或整局验收。未指定 effort 的旧请求曾把全部8192输出token耗在思考上，无法生成事件。修改配置后重启。
+
+离线验证（不访问模型 API）：`node game/src/test/run.mjs llm-provider prompt scene`。
 
 ## 启动
 
