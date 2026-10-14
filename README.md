@@ -40,7 +40,7 @@ git clone https://github.com/AI-TRPG-Game/AI-Rougelike-Narrative-Game
 ## 准备两样东西
 
 1. **Node.js 22.18 或更新版本**：到 [nodejs.org](https://nodejs.org/) 下载安装（一路默认即可）。项目零依赖、无构建步骤，Node 直接运行 TypeScript 源码——**直接跑 `.ts` 需要 22.18+ 才默认开启**，所以版本别低于它（拿不准就装官网最新 LTS）。
-2. **DeepSeek API Key**：到 [platform.deepseek.com](https://platform.deepseek.com/) 注册并创建一个 API Key（游戏每局会真实调用模型，按量计费，玩一局的花费很低，10r以内即可，甚至1r就可以体验很多剧情！）。
+2. **模型 API Key**：可以使用 DeepSeek 或 SoCLaaS。DeepSeek 密钥可到 [platform.deepseek.com](https://platform.deepseek.com/) 创建；SoCLaaS 使用自己的服务密钥。实际费用及试用额度以服务商和账号为准。
 
 然后配置密钥：
 
@@ -49,6 +49,22 @@ git clone https://github.com/AI-TRPG-Game/AI-Rougelike-Narrative-Game
 复制 game/.env.example 为 game/.env
 # 打开 game/.env，把 DEEPSEEK_API_KEY=sk-replace-me 换成你自己的 key
 ```
+
+### 使用 SoCLaaS / GLM 5.3 Flash
+
+SoCLaaS 是实验性学校网关，试用模型可能移除或替换；**正常游玩推荐官方 DeepSeek API**。
+
+在 `game/.env` 中配置：
+
+```dotenv
+LLM_PROVIDER=soclaas
+SOCLAAS_API_KEY=your-soclaas-api-key
+SOCLAAS_MODEL=x-test-1
+```
+
+`x-test-1` 为 GLM 5.3 Flash，`x-test-2` 为学校的 DeepSeek V4.1 Flash；两者共用学校密钥，切换时只改 `SOCLAAS_MODEL`。修改配置后重启游戏。切回官方 DeepSeek 时设置 `LLM_PROVIDER=deepseek` 并填写 `DEEPSEEK_API_KEY`。
+
+推理默认 `none`；更多配置见 [game/.env.example](game/.env.example)。请勿提交 `game/.env` 中的密钥。
 
 ## 启动
 

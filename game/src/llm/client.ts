@@ -2,7 +2,7 @@
 //
 // 与 `probe/src/client.mjs` 的关系：那份是"看真实行为"的探针，刻意不做重试与兜底。
 // 这份是**生产路径**，按《契约.md》§三 3.2 的容错表办事：
-//   · 必检 `finish_reason`（非 `tool_calls` 一律视为失败；`length` = 截断）
+//   · 必检 `finish_reason`（SoCLaaS 完整工具调用也可用 stop；length 一律失败）
 //   · `JSON.parse` 包 try/except；失败 ⇒ 重试至多 **1** 次
 //   · 重试仍失败 ⇒ **返回失败结果，由上层决定"跳过这一条"**（本 demo 不写模板文案兜底）
 //   · 降级：`strict` 报 schema 错时，退回非 strict 重试一次（客户端校验本来就是唯一防线）
@@ -10,7 +10,7 @@ import type { LlmConfig } from './config.ts';
 import { extractToolCall } from './snapshot.ts';
 
 export interface LlmResult {
-  /** 真正成功 = HTTP 2xx **且** `finish_reason==='tool_calls'` **且** `arguments` 能解析 */
+  /** HTTP 2xx、正常终止、有工具名且 arguments 能解析；截断永不成功。 */
   ok: boolean;
   status: number;
   elapsedMs: number;
@@ -28,6 +28,11 @@ export interface LlmResult {
   /** 一共发了几次（含重试） */
   attempts: number;
   warnings: string[];
+}
+
+/** Some SoCLaaS backends finish valid tool calls with stop instead of tool_calls. */
+function completeToolFinish(cfg: LlmConfig, reason: string | null): boolean {
+  return reason === 'tool_calls' || (cfg.provider === 'soclaas' && reason === 'stop');
 }
 
 function fail(status: number, rawText: string, warnings: string[]): LlmResult {
@@ -114,10 +119,11 @@ export async function sendChat(
   }
 
   const httpOk = status >= 200 && status < 300;
-  const ok = httpOk && finishReason === 'tool_calls' && args !== null;
+  const validFinish = completeToolFinish(cfg, finishReason);
+  const ok = httpOk && validFinish && Boolean(toolName) && args !== null;
 
   const warnings: string[] = [];
-  if (httpOk && finishReason !== 'tool_calls') {
+  if (httpOk && !validFinish) {
     warnings.push(
       finishReason === 'length'
         ? '⚠️ finish_reason=length —— 输出被截断，arguments 停在半个对象上（调大 max_tokens 或拆小输出）'
@@ -431,8 +437,9 @@ export async function callToolStream(
       }
     }
     const httpOk = status >= 200 && status < 300;
-    const ok = httpOk && fr === 'tool_calls' && args !== null;
-    if (httpOk && fr !== 'tool_calls') {
+    const validFinish = completeToolFinish(cfg, fr);
+    const ok = httpOk && validFinish && Boolean(tn) && args !== null;
+    if (httpOk && !validFinish) {
       warnings.push(
         fr === 'length'
           ? '⚠️ finish_reason=length —— 输出被截断，arguments 停在半个对象上（调大 max_tokens 或拆小输出）'
